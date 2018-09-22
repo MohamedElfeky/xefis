@@ -27,6 +27,7 @@
 
 // Xefis:
 #include <xefis/config/all.h>
+#include <xefis/core/logger.h>
 #include <xefis/core/module.h>
 #include <xefis/utility/time_helper.h>
 
@@ -68,7 +69,8 @@ class Accounting: public QObject
 	{
 	  public:
 		// Ctor
-		explicit Stats (LatencySamples::size_type samples);
+		explicit
+		Stats (LatencySamples::size_type samples);
 
 		/**
 		 * Return minimum event handling latency.
@@ -116,11 +118,12 @@ class Accounting: public QObject
 		Stats	e3	= Stats (1000);
 	};
 
-	typedef std::map<Module::Pointer, StatsSet> ModuleStats;
+	using ModuleStats = std::map<xf::BasicModule*, StatsSet>;
 
   public:
-	// Ctor:
-	Accounting();
+	// Ctor
+	explicit
+	Accounting (Logger const&);
 
 	// Dtor
 	~Accounting();
@@ -143,14 +146,14 @@ class Accounting: public QObject
 	 * \throw	ModuleNotFoundException if module can't be found.
 	 */
 	Stats const&
-	module_stats (Module::Pointer, Timespan) const;
+	module_stats (xf::BasicModule*, Timespan) const;
 
 	/**
 	 * Add module accounting stats (usually called by the ModuleManager
 	 * which tracks how much time each module consumes on data_updated().
 	 */
 	void
-	add_module_stats (Module::Pointer, Time dt);
+	add_module_stats (xf::BasicModule*, si::Time dt);
 
   private slots:
 	/**

@@ -19,6 +19,7 @@
 
 // Local:
 #include "standard_units.h"
+#include "additional_units.h"
 #include "quantity.h"
 
 
@@ -26,13 +27,13 @@ namespace si {
 namespace literals {
 
 #define SI_DEFINE_LITERAL(xUnit, xliteral)			\
-	inline constexpr Quantity<units::xUnit>			\
+	constexpr Quantity<units::xUnit>				\
 	operator"" xliteral (long double value)			\
 	{												\
 		return Quantity<units::xUnit> (value);		\
 	}												\
 													\
-	inline constexpr Quantity<units::xUnit>			\
+	constexpr Quantity<units::xUnit>				\
 	operator"" xliteral (unsigned long long value)	\
 	{												\
 		return Quantity<units::xUnit> (value);		\
@@ -77,6 +78,7 @@ SI_DEFINE_LITERAL (MeterPerSecondSquared, _mps2)
 SI_DEFINE_LITERAL (RadianPerSecond, _radps)
 SI_DEFINE_LITERAL (RadianPerSecondSquared, _radps2)
 SI_DEFINE_LITERAL (NewtonMeter, _Nm)
+SI_DEFINE_LITERAL (NewtonSecond, _Ns)
 SI_DEFINE_LITERAL (PascalSecond, _Pas)
 
 // Often-used scaled units:
@@ -108,6 +110,7 @@ SI_DEFINE_LITERAL (HectoPascal, _hPa)
 SI_DEFINE_LITERAL (Foot, _ft)
 SI_DEFINE_LITERAL (Mile, _mi)
 SI_DEFINE_LITERAL (NauticalMile, _nmi)
+SI_DEFINE_LITERAL (Inch, _in)
 SI_DEFINE_LITERAL (PoundMass, _lb)
 SI_DEFINE_LITERAL (Gravity, _g)
 SI_DEFINE_LITERAL (Rankine, _Ra)

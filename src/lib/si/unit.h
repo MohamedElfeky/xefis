@@ -16,9 +16,13 @@
 
 // Standard:
 #include <cstddef>
+#include <cmath>
 #include <ratio>
 #include <array>
 #include <tuple>
+
+// Local:
+#include "exception.h"
 
 
 namespace si {
@@ -30,6 +34,17 @@ class DynamicUnit;
  * Number of dimensions (distinct physical quantities) in our SI space.
  */
 static constexpr std::size_t kUnitDimensions = 8;
+
+
+/**
+ * Convert std::ratio to desired floating-point number.
+ */
+template<class Ratio, class Value>
+	constexpr Value
+	to_floating_point() noexcept
+	{
+		return static_cast<Value> (Ratio::num) / static_cast<Value> (Ratio::den);
+	}
 
 
 /**
@@ -116,6 +131,16 @@ template<
 		 */
 		static constexpr DynamicUnit
 		dynamic_unit();
+
+		/**
+		 * Convert value from this unit to unit with scale=1 and offset=0.
+		 */
+		template<class Value>
+			static constexpr Value
+			base_quantity (Value value) noexcept
+			{
+				return value * to_floating_point<Scale, Value>() + to_floating_point<Offset, Value>();
+			}
 	};
 
 
@@ -137,7 +162,7 @@ template<
  *   // [C] = [°F] * 5/9 - 32 * 5/9
  *   typedef ScaledUnit<C, std::ratio<5, 9>, std::ratio<-32 * 5, 9>> F;
  */
-template<class pExistingUnit, class pScale, class pOffset= std::ratio<0>>
+template<class pExistingUnit, class pScale, class pOffset = std::ratio<0>>
 	using ScaledUnit =
 		Unit<
 			pExistingUnit::E0,
@@ -157,7 +182,7 @@ template<class pExistingUnit, class pScale, class pOffset= std::ratio<0>>
  * Shorthand for getting base-version of any unit (where scale = 1 and offset = 0).
  */
 template<class pExistingUnit>
-	using BaseUnit =
+	using NormalizedUnit =
 		Unit<
 			pExistingUnit::E0,
 			pExistingUnit::E1,
@@ -288,8 +313,10 @@ class DynamicUnit
 	operator< (DynamicUnit const&) const;
 
 #define SI_DYNAMIC_UNIT_ACCESSOR(name, index) \
-	int&					name() noexcept			{ return _exponents[index]; } \
-	constexpr int const&	name() const noexcept	{ return _exponents[index]; }
+	int&					name() noexcept				{ return _exponents[index]; } \
+	constexpr int const&	name() const noexcept		{ return _exponents[index]; } \
+	int&					e##index() noexcept			{ return _exponents[index]; } \
+	constexpr int const&	e##index() const noexcept	{ return _exponents[index]; } \
 
 	SI_DYNAMIC_UNIT_ACCESSOR (length_exponent, 0)
 	SI_DYNAMIC_UNIT_ACCESSOR (mass_exponent, 1)
@@ -344,7 +371,7 @@ class DynamicUnit
 
 
 template<int E0, int E1, int E2, int E3, int E4, int E5, int E6, int E7, class S, class O>
-	inline constexpr bool
+	constexpr bool
 	Unit<E0, E1, E2, E3, E4, E5, E6, E7, S, O>::is_dimensionless()
 	{
 		return E0 == 0 && E1 == 0 && E2 == 0 && E3 == 0
@@ -353,7 +380,7 @@ template<int E0, int E1, int E2, int E3, int E4, int E5, int E6, int E7, class S
 
 
 template<int E0, int E1, int E2, int E3, int E4, int E5, int E6, int E7, class S, class O>
-	inline constexpr DynamicUnit
+	constexpr DynamicUnit
 	Unit<E0, E1, E2, E3, E4, E5, E6, E7, S, O>::dynamic_unit()
 	{
 		return DynamicUnit (E0, E1, E2, E3, E4, E5, E6, E7, DynamicRatio (S::num, S::den), DynamicRatio (O::num, O::den));
@@ -365,14 +392,14 @@ template<int E0, int E1, int E2, int E3, int E4, int E5, int E6, int E7, class S
  */
 
 
-inline constexpr
+constexpr
 DynamicRatio::DynamicRatio (intmax_t numerator, intmax_t denominator):
 	_numerator (numerator),
 	_denominator (denominator)
 { }
 
 
-inline constexpr bool
+constexpr bool
 DynamicRatio::operator== (DynamicRatio const& other) const
 {
 	return _numerator == other._numerator
@@ -380,21 +407,21 @@ DynamicRatio::operator== (DynamicRatio const& other) const
 }
 
 
-inline constexpr bool
+constexpr bool
 DynamicRatio::operator!= (DynamicRatio const& other) const
 {
 	return !(*this == other);
 }
 
 
-inline constexpr bool
+constexpr bool
 DynamicRatio::operator< (DynamicRatio const& other) const
 {
 	return to_floating_point() < other.to_floating_point();
 }
 
 
-inline constexpr DynamicRatio&
+constexpr DynamicRatio&
 DynamicRatio::operator*= (DynamicRatio const& other)
 {
 	_numerator *= other._numerator;
@@ -403,7 +430,7 @@ DynamicRatio::operator*= (DynamicRatio const& other)
 }
 
 
-inline constexpr DynamicRatio&
+constexpr DynamicRatio&
 DynamicRatio::operator/= (DynamicRatio const& other)
 {
 	_numerator *= other._denominator;
@@ -412,28 +439,28 @@ DynamicRatio::operator/= (DynamicRatio const& other)
 }
 
 
-inline constexpr DynamicRatio
+constexpr DynamicRatio
 DynamicRatio::inverted() const
 {
 	return DynamicRatio (_denominator, _numerator);
 }
 
 
-inline constexpr intmax_t
+constexpr intmax_t
 DynamicRatio::numerator() const noexcept
 {
 	return _numerator;
 }
 
 
-inline constexpr intmax_t
+constexpr intmax_t
 DynamicRatio::denominator() const noexcept
 {
 	return _denominator;
 }
 
 
-inline constexpr long double
+constexpr long double
 DynamicRatio::to_floating_point() const
 {
 	return static_cast<long double> (_numerator) / static_cast<long double> (_denominator);
@@ -445,7 +472,7 @@ DynamicRatio::to_floating_point() const
  */
 
 
-inline constexpr
+constexpr
 DynamicUnit::DynamicUnit():
 	_exponents ({ 0, 0, 0, 0, 0, 0, 0, 0 }),
 	_scale (1, 1),
@@ -453,7 +480,7 @@ DynamicUnit::DynamicUnit():
 { }
 
 
-inline constexpr
+constexpr
 DynamicUnit::DynamicUnit (int E0, int E1, int E2, int E3, int E4, int E5, int E6, int E7, DynamicRatio scale, DynamicRatio offset):
 	_exponents ({ E0, E1, E2, E3, E4, E5, E6, E7 }),
 	_scale (scale),
@@ -461,7 +488,7 @@ DynamicUnit::DynamicUnit (int E0, int E1, int E2, int E3, int E4, int E5, int E6
 { }
 
 
-inline constexpr DynamicUnit&
+constexpr DynamicUnit&
 DynamicUnit::operator= (DynamicUnit const& other)
 {
 	_exponents = other._exponents;
@@ -494,42 +521,42 @@ DynamicUnit::operator< (DynamicUnit const& other) const
 }
 
 
-inline constexpr std::array<int, kUnitDimensions>&
+constexpr std::array<int, kUnitDimensions>&
 DynamicUnit::exponents() noexcept
 {
 	return _exponents;
 }
 
 
-inline constexpr std::array<int, kUnitDimensions> const&
+constexpr std::array<int, kUnitDimensions> const&
 DynamicUnit::exponents() const noexcept
 {
 	return _exponents;
 }
 
 
-inline constexpr DynamicRatio&
+constexpr DynamicRatio&
 DynamicUnit::scale() noexcept
 {
 	return _scale;
 }
 
 
-inline constexpr DynamicRatio const&
+constexpr DynamicRatio const&
 DynamicUnit::scale() const noexcept
 {
 	return _scale;
 }
 
 
-inline constexpr DynamicRatio&
+constexpr DynamicRatio&
 DynamicUnit::offset() noexcept
 {
 	return _offset;
 }
 
 
-inline constexpr DynamicRatio const&
+constexpr DynamicRatio const&
 DynamicUnit::offset() const noexcept
 {
 	return _offset;
@@ -541,39 +568,164 @@ DynamicUnit::offset() const noexcept
  */
 
 
-inline constexpr DynamicRatio
+constexpr DynamicRatio
 operator* (int x, DynamicRatio const& ratio)
 {
 	return DynamicRatio (x * ratio.numerator(), ratio.denominator());
 }
 
 
-inline constexpr DynamicRatio
+constexpr DynamicRatio
 operator* (DynamicRatio const& a, DynamicRatio const& b)
 {
 	return DynamicRatio (a.numerator() * b.numerator(), a.denominator() * b.denominator());
 }
 
 
-inline constexpr DynamicRatio
+constexpr DynamicRatio
 operator/ (int x, DynamicRatio const& ratio)
 {
 	return x * ratio.inverted();
 }
 
 
-inline constexpr DynamicRatio
+constexpr DynamicRatio
 operator/ (DynamicRatio const& ratio, int x)
 {
 	return ratio * DynamicRatio (1, x);
 }
 
 
-inline constexpr DynamicRatio
+constexpr DynamicRatio
 operator/ (DynamicRatio const& a, DynamicRatio const& b)
 {
 	return DynamicRatio (a.numerator() * b.denominator(), a.denominator() * b.numerator());
 }
+
+
+/**
+ * Return true if SourceUnit is convertible to TargetUnit (exponent vector is
+ * the same, only scaling and/or offset differs.
+ */
+template<class SourceUnit, class TargetUnit>
+	constexpr bool
+	is_convertible()
+	{
+		return SourceUnit::E0 == TargetUnit::E0
+			&& SourceUnit::E1 == TargetUnit::E1
+			&& SourceUnit::E2 == TargetUnit::E2
+			&& SourceUnit::E3 == TargetUnit::E3
+			&& SourceUnit::E4 == TargetUnit::E4
+			&& SourceUnit::E5 == TargetUnit::E5
+			&& SourceUnit::E6 == TargetUnit::E6
+			&& SourceUnit::E7 == TargetUnit::E7;
+	}
+
+
+/**
+ * Return true if SourceUnit is convertible to TargetUnit (exponent vector is
+ * the same except for E7 aka AngleExponent).
+ */
+template<class SourceUnit, class TargetUnit>
+	constexpr bool
+	is_convertible_with_angle()
+	{
+		return SourceUnit::E0 == TargetUnit::E0
+			&& SourceUnit::E1 == TargetUnit::E1
+			&& SourceUnit::E2 == TargetUnit::E2
+			&& SourceUnit::E3 == TargetUnit::E3
+			&& SourceUnit::E4 == TargetUnit::E4
+			&& SourceUnit::E5 == TargetUnit::E5
+			&& SourceUnit::E6 == TargetUnit::E6;
+	}
+
+
+/**
+ * Return true if source_unit is convertible to target_unit (exponent vector is
+ * the same, only scaling and/or offset differs.
+ */
+constexpr bool
+is_convertible (DynamicUnit const& source_unit, DynamicUnit const& target_unit)
+{
+	return source_unit.e0() == target_unit.e0()
+		&& source_unit.e1() == target_unit.e1()
+		&& source_unit.e2() == target_unit.e2()
+		&& source_unit.e3() == target_unit.e3()
+		&& source_unit.e4() == target_unit.e4()
+		&& source_unit.e5() == target_unit.e5()
+		&& source_unit.e6() == target_unit.e6()
+		&& source_unit.e7() == target_unit.e7();
+}
+
+
+/**
+ * Return true if source_unit is convertible to target_unit (exponent vector is
+ * the same, only scaling and/or offset differs.
+ */
+constexpr bool
+is_convertible_with_angle (DynamicUnit const& source_unit, DynamicUnit const& target_unit)
+{
+	return source_unit.e0() == target_unit.e0()
+		&& source_unit.e1() == target_unit.e1()
+		&& source_unit.e2() == target_unit.e2()
+		&& source_unit.e3() == target_unit.e3()
+		&& source_unit.e4() == target_unit.e4()
+		&& source_unit.e5() == target_unit.e5()
+		&& source_unit.e6() == target_unit.e6();
+}
+
+
+/**
+ * Convert value 'source' expressed in SourceUnits to TargetUnits.
+ */
+template<class SourceUnit, class TargetUnit, class Value,
+		 class = std::enable_if_t<is_convertible<SourceUnit, TargetUnit>() || is_convertible_with_angle<SourceUnit, TargetUnit>()>>
+	constexpr Value
+	convert (Value source_quantity)
+	{
+		if constexpr (is_convertible<SourceUnit, TargetUnit>())
+			return (SourceUnit::base_quantity (source_quantity) - to_floating_point<typename TargetUnit::Offset, Value>()) / to_floating_point<typename TargetUnit::Scale, Value>();
+		else if constexpr (is_convertible_with_angle<SourceUnit, TargetUnit>())
+		{
+			constexpr int other_angle_exp_diff = TargetUnit::AngleExponent - SourceUnit::AngleExponent;
+			// Conversion: cycles → radians (increasing AngleExponent) => return value * 2 * PI.
+			// Conversion: radians → cycles (decreasing AngleExponent) => return value / (2 * PI).
+			auto result = (SourceUnit::base_quantity (source_quantity) - to_floating_point<typename TargetUnit::Offset, Value>()) / to_floating_point<typename TargetUnit::Scale, Value>();
+
+			// Manual powering to ensure constexprness:
+			if (other_angle_exp_diff > 0)
+			{
+				for (int i = 0; i < other_angle_exp_diff; ++i)
+					result *= 2.0 * M_PI;
+			}
+			else if (other_angle_exp_diff < 0)
+			{
+				for (int i = 0; i > other_angle_exp_diff; --i)
+					result /= 2.0 * M_PI;
+			}
+
+			return result;
+		}
+	}
+
+
+/**
+ * Convert value 'source' expressed in 'source_unit's to 'target_unit's.
+ */
+template<class Value>
+	constexpr Value
+	convert (DynamicUnit const& source_unit, Value source_quantity, DynamicUnit const& target_unit)
+	{
+		// Assert that units are convertible (exponents vector the same):
+		if (source_unit.exponents() != target_unit.exponents())
+			throw IncompatibleTypes (source_unit, target_unit);
+
+		// TODO support AngleExponent-conversion
+
+		Value base_value = source_quantity * source_unit.scale().to_floating_point() + source_unit.offset().to_floating_point();
+		Value result = (base_value - target_unit.offset().to_floating_point()) / target_unit.scale().to_floating_point();
+		return result;
+	}
 
 } // namespace si
 

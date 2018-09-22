@@ -11,15 +11,16 @@
  * Visit http://www.gnu.org/licenses/gpl-3.0.html for more information on licensing.
  */
 
-#ifndef XEFIS__CORE__SYSYTEM_H__INCLUDED
-#define XEFIS__CORE__SYSYTEM_H__INCLUDED
+#ifndef XEFIS__CORE__SYSTEM_H__INCLUDED
+#define XEFIS__CORE__SYSTEM_H__INCLUDED
 
 // Standard:
 #include <cstddef>
 
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/support/bus//serial_port.h>
+#include <xefis/core/logger.h>
+#include <xefis/support/bus/serial_port.h>
 
 
 namespace xf {
@@ -28,7 +29,8 @@ class System
 {
   public:
 	// Ctor
-	explicit System();
+	explicit
+	System (Logger const&);
 
 	// Dtor
 	~System();
@@ -39,13 +41,6 @@ class System
 	 */
 	bool
 	set_clock (Time const& unix_time);
-
-	template<class ...Args>
-		Unique<SerialPort>
-		allocate_serial_port (Args&& ...args)
-		{
-			return std::make_unique<SerialPort> (std::forward<Args> (args)...);
-		}
 
   private:
 	Logger _logger;

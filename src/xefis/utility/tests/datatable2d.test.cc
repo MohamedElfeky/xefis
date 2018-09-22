@@ -19,30 +19,29 @@
 #include <xefis/utility/datatable2d.h>
 
 
-namespace xf {
-namespace test {
+namespace xf::test {
+namespace {
 
-static xf::RuntimeTest t1 ("Datatable2D<>", []{
-	using namespace xf::test_asserts;
+RuntimeTest t1 ("Datatable2D<>", []{
+	Datatable2D<double, double> d ({
+		{ 0.0, 0.0 },
+		{ 1.0, 10.0 },
+		{ 0.0, 0.0 },
+		{ 1.0, 10.0 },
+		{ 2.0, 20.0 },
+		{ 3.0, 10.0 },
+		{ 4.0, 0.0 },
+	});
 
-	std::map<double, double> m;
-	m[0.0] = 0.0;
-	m[1.0] = 10.0;
-	m[2.0] = 20.0;
-	m[3.0] = 10.0;
-	m[4.0] = 0.0;
+	test_asserts::verify ("domain().min() is correct", d.domain().min() == 0.0);
+	test_asserts::verify ("domain().max() is correct", d.domain().max() == 4.0);
 
-	Datatable2D<double, double> d (m);
+	test_asserts::verify ("codomain().min() is correct", d.codomain().min() == 0.0);
+	test_asserts::verify ("codomain().max() is correct", d.codomain().max() == 20.0);
 
-	verify ("domain().min() is correct", d.domain().min() == 0.0);
-	verify ("domain().max() is correct", d.domain().max() == 4.0);
-
-	verify ("codomain().min() is correct", d.codomain().min() == 0.0);
-	verify ("codomain().max() is correct", d.codomain().max() == 20.0);
-
-	verify_equal_with_epsilon ("average ({ -2.0, 2.0 }) is correct", d.average ({ -2.0, 2.0 }), 0.0, 0.001);
+	test_asserts::verify_equal_with_epsilon ("average ({ -2.0, 2.0 }) is correct", d.average ({ -2.0, 2.0 }), 0.0, 0.001);
 });
 
-} // namespace test
-} // namespace xf
+} // namespace
+} // namespace xf::test
 

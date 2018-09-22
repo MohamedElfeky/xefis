@@ -17,14 +17,14 @@
 // Standard:
 #include <cstddef>
 #include <functional>
+#include <variant>
 #include <list>
 
 // Xefis:
 #include <xefis/config/all.h>
+#include <xefis/core/property.h>
 #include <xefis/utility/smoother.h>
-
-// Local:
-#include "property.h"
+#include <xefis/utility/variant.h>
 
 
 namespace xf {
@@ -36,49 +36,51 @@ namespace xf {
 class PropertyObserver
 {
   public:
+	/**
+	 * Encapsulates object to be observed: a property or another observer.
+	 */
 	class Object
 	{
 		friend class PropertyObserver;
 
 	  public:
 		// Ctor
-		Object (GenericProperty*);
+		Object (BasicProperty const*);
 
 		// Ctor
 		Object (PropertyObserver*);
 
-		PropertyNode::Serial
+		BasicProperty::Serial
 		remote_serial() const noexcept;
 
 	  private:
-		GenericProperty*		_property		= nullptr;
-		PropertyObserver*		_observer		= nullptr;
-		PropertyNode::Serial	_saved_serial	= 0;
+		std::variant<BasicProperty const*, PropertyObserver*>	_observable;
+		BasicProperty::Serial									_saved_serial	= 0;
 	};
 
-	typedef std::list<Object>			ObjectsList;
-	typedef std::list<SmootherBase*>	SmoothersList;
+	typedef std::vector<Object>			ObjectsList;
+	typedef std::vector<SmootherBase*>	SmoothersList;
 
   public:
-	typedef PropertyNode::Serial		Serial;
+	typedef BasicProperty::Serial		Serial;
 	typedef std::function<void()>		Callback;
 
   public:
 	/**
 	 * Add property to be observed.
-	 * When property's value changes (that is the fresh() method returns true), the callback function is called.
+	 * When property's value changes the callback function is called.
 	 *
-	 * Property is added by reference, so the property object must live as long as the PropertyObserver.
+	 * Property is held by reference, so the property object must live as long as the PropertyObserver.
 	 */
 	void
-	observe (GenericProperty& property);
+	observe (BasicProperty const& property);
 
 	/**
 	 * Add another PropertyObserver to observe.
 	 * Similarly to observing property, if the other observer fires its callback function, then this observer
 	 * will fire its own.
 	 *
-	 * The other observer is added by reference, and it must live as long as this observer lives.
+	 * The other observer is held by reference, and it must live as long as this observer lives.
 	 */
 	void
 	observe (PropertyObserver& observer);
@@ -89,6 +91,13 @@ class PropertyObserver
 	 */
 	void
 	observe (std::initializer_list<Object> list);
+
+	/**
+	 * Add list of properties to be tracked, from a sequence.
+	 */
+	template<class Iterator>
+		void
+		observe (Iterator begin, Iterator end);
 
 	/**
 	 * Setup callback function.
@@ -103,13 +112,13 @@ class PropertyObserver
 	 * Default is 0_s.
 	 */
 	void
-	set_minimum_dt (Time) noexcept;
+	set_minimum_dt (si::Time) noexcept;
 
 	/**
 	 * Signal data update, so the observer will do its checks.
 	 */
 	void
-	data_updated (Time update_time);
+	process (si::Time update_time);
 
 	/**
 	 * Return serial value.
@@ -122,22 +131,21 @@ class PropertyObserver
 	 * Return last update time.
 	 * This is the time of the last fire of the callback function.
 	 */
-	Time
+	si::Time
 	update_time() const noexcept;
 
 	/**
 	 * Return time delta since last fire of the callback function.
 	 */
-	Time
+	si::Time
 	update_dt() const noexcept;
 
 	/**
 	 * Register smoother with this observer.
-	 * Several smoothers can be registered. The longest smoothing time from those smoothers is collected every
-	 * time this Observer is updated (data_updated(...) is called). Then, for that period of time, observer
-	 * will fire callback function several times. Frequency of fires is controlled by set_smoothing_frequency(...).
+	 * PropertyObserver will fire callbacks more than once after last property change to accommodate for period of time greater or equal to the smoothing-time
+	 * of the longest-smoothing Smoother. This is to ensure that smoothers continue to work and smooth data even after single-event property change occurs.
 	 *
-	 * Smoother is added by reference, so it must live as long as this object lives.
+	 * Smoother is held by reference, so it must live as long as this object lives.
 	 */
 	void
 	add_depending_smoother (SmootherBase& smoother);
@@ -150,9 +158,8 @@ class PropertyObserver
 	add_depending_smoothers (std::initializer_list<SmootherBase*> list);
 
 	/**
-	 * Tells the property observer to do a callback on next occasion,
-	 * regardless of other conditions, but takes into consideration
-	 * minimum dt set with set_minimum_dt().
+	 * Tells the property observer to do a callback on next occasion, regardless of other conditions, but takes into
+	 * consideration minimum dt set with set_minimum_dt().
 	 */
 	void
 	touch() noexcept;
@@ -162,50 +169,58 @@ class PropertyObserver
 	 * Find longest smoothing time from all registered smoothers.
 	 * Return 0_s, if no smoothers are registered.
 	 */
-	Time
+	si::Time
 	longest_smoothing_time() noexcept;
 
   private:
-	ObjectsList		_objects;
-	SmoothersList	_smoothers;
-	Callback		_callback;
-	Serial			_serial						= 0;
+	ObjectsList				_objects;
+	SmoothersList			_smoothers;
+	Callback				_callback;
+	Serial					_serial						{ 0 };
 	// Time of last change of observed property:
-	Time			_obs_update_time			= 0_s;
+	si::Time				_obs_update_time			{ 0_s };
 	// Time of last firing of the callback function:
-	Time			_fire_time					= 0_s;
-	Time			_fire_dt					= 0_s;
-	Time			_accumulated_dt				= 0_s;
-	Time			_minimum_dt					= 0_s;
-	Time			_longest_smoother			= 0_s;
-	bool			_recompute_longest_smoother	= false;
+	Time					_fire_time					= 0_s;
+	Time					_fire_dt					= 0_s;
+	Time					_accumulated_dt				= 0_s;
+	Time					_minimum_dt					= 0_s;
+	std::optional<si::Time>	_longest_smoothing_time;
 	// Set to true, when observed property is updated, but
 	// _minimum_dt prevented firing the callback.
-	bool			_need_callback				= false;
-	bool			_last_recompute				= false;
-	bool			_touch						= false;
+	bool					_need_callback				{ false };
+	bool					_additional_recompute		{ false };
+	bool					_touch						{ false };
 };
 
 
 inline
-PropertyObserver::Object::Object (GenericProperty* property):
-	_property (property)
+PropertyObserver::Object::Object (BasicProperty const* property):
+	_observable (property)
 { }
 
 
 inline
 PropertyObserver::Object::Object (PropertyObserver* observer):
-	_observer (observer)
+	_observable (observer)
 { }
 
 
-inline PropertyNode::Serial
+inline BasicProperty::Serial
 PropertyObserver::Object::remote_serial() const noexcept
 {
-	if (_property)
-		return _property->serial();
-	return _observer->serial();
+	return std::visit ([](auto const& observable) noexcept {
+		return observable->serial();
+	}, _observable);
 }
+
+
+template<class Iterator>
+	void
+	PropertyObserver::observe (Iterator begin, Iterator end)
+	{
+		for (Iterator p = begin; p != end; ++p)
+			observe (*p);
+	}
 
 
 inline PropertyObserver::Serial
@@ -215,14 +230,14 @@ PropertyObserver::serial() const noexcept
 }
 
 
-inline Time
+inline si::Time
 PropertyObserver::update_time() const noexcept
 {
 	return _fire_time;
 }
 
 
-inline Time
+inline si::Time
 PropertyObserver::update_dt() const noexcept
 {
 	return _fire_dt;

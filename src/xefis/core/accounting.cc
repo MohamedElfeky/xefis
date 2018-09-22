@@ -15,9 +15,12 @@
 #include <cstddef>
 #include <algorithm>
 
+// Qt:
+#include <QApplication>
+
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/core/module_manager.h>
+#include <xefis/core/stdexcept.h>
 #include <xefis/utility/time_helper.h>
 
 // Local:
@@ -83,13 +86,14 @@ Accounting::Stats::average() const noexcept
 }
 
 
-Accounting::Accounting()
+Accounting::Accounting (Logger const& logger):
+	_logger (logger.with_scope ("<accounting>"))
 {
-	_logger.set_prefix ("<accounting>");
 	_logger << "Creating Accounting" << std::endl;
 	_latency_check_timer = new QTimer (this);
 	_latency_check_timer->setSingleShot (false);
-	_latency_check_timer->setInterval (10);
+	_latency_check_timer->setTimerType (Qt::PreciseTimer);
+	_latency_check_timer->setInterval ((10_ms).in<si::Millisecond>());
 	QObject::connect (_latency_check_timer, SIGNAL (timeout()), this, SLOT (latency_check()));
 	_latency_check_timer->start();
 }
@@ -102,19 +106,22 @@ Accounting::~Accounting()
 
 
 Accounting::Stats const&
-Accounting::module_stats (Module::Pointer modptr, Timespan timespan) const
+Accounting::module_stats (xf::BasicModule* modptr, Timespan timespan) const
 {
 	ModuleStats::const_iterator ms = _module_stats.find (modptr);
+
 	if (ms != _module_stats.end())
 		return ms->second.select (timespan);
-	throw ModuleNotFoundException (QString ("stats for module '%1', instance '%2' can't be found").arg (modptr.name().c_str()).arg (modptr.instance().c_str()).toStdString());
+
+	throw InvalidArgument (QString ("stats for module '%1' can't be found").arg (identifier (*modptr).c_str()).toStdString());
 }
 
 
 void
-Accounting::add_module_stats (Module::Pointer modptr, Time dt)
+Accounting::add_module_stats (xf::BasicModule* modptr, Time dt)
 {
 	StatsSet& ss = _module_stats[modptr];
+
 	for (Stats* s: { &ss.e1, &ss.e2, &ss.e3 })
 		s->new_sample (dt);
 }

@@ -12,6 +12,7 @@
  */
 
 // Standards:
+#include <atomic>
 #include <cstddef>
 #include <cstdlib>
 #include <iostream>
@@ -28,7 +29,6 @@
 // Xefis:
 #include <xefis/config/all.h>
 #include <xefis/core/fail.h>
-#include <xefis/core/services.h>
 #include <xefis/core/xefis.h>
 #include <xefis/utility/backtrace.h>
 
@@ -38,6 +38,7 @@ int main (int argc, char** argv, char**)
 	signal (SIGILL, xf::fail);
 	signal (SIGFPE, xf::fail);
 	signal (SIGSEGV, xf::fail);
+	signal (SIGHUP, [](int) { xf::g_hup_received.store (true); });
 
 	setenv ("LC_ALL", "POSIX", 1);
 	setlocale (LC_ALL, "POSIX");
@@ -48,9 +49,7 @@ int main (int argc, char** argv, char**)
 			std::cout << "Xefis" << std::endl;
 			std::cout << "Commit: " << xf::version::commit << std::endl;
 			std::cout << "Branch: " << xf::version::branch << std::endl;
-			std::clog << "Features: ";
-			std::vector<const char*> features = xf::Services::features();
-			std::copy (features.begin(), features.end(), std::ostream_iterator<const char*> (std::clog, " "));
+			std::clog << "CXXFLAGS: " << CXXFLAGS << std::endl;
 			std::clog << std::endl;
 		}
 		else
@@ -65,6 +64,8 @@ int main (int argc, char** argv, char**)
 	}
 	catch (xf::Exception& e)
 	{
+		using namespace xf::exception_ops;
+
 		std::cerr << "Fatal error: " << e << std::endl;
 	}
 

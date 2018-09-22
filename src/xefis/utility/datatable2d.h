@@ -17,11 +17,13 @@
 // Standard:
 #include <cstddef>
 #include <vector>
+#include <initializer_list>
 
 // Xefis:
 #include <xefis/config/all.h>
 #include <xefis/utility/numeric.h>
-#include <xefis/utility/sequence.h>
+#include <xefis/utility/sequence_utils.h>
+#include <xefis/utility/synchronized.h>
 
 
 namespace xf {
@@ -57,6 +59,7 @@ template<class pArgument, class pValue>
 		class EmptyDomainException: public xf::Exception
 		{
 		  public:
+			explicit
 			EmptyDomainException():
 				Exception ("datatable domain must not be empty")
 			{ }
@@ -66,19 +69,41 @@ template<class pArgument, class pValue>
 		/**
 		 * Create a data-table from argument-value points given in the map.
 		 */
-		explicit Datatable2D (DataMap const&);
+		explicit
+		Datatable2D (DataMap const&);
 
 		/**
 		 * Create a data-table from argument-value points given in the map.
 		 */
-		explicit Datatable2D (DataMap&&);
+		explicit
+		Datatable2D (DataMap&&);
+
+		/**
+		 * Create a data-table from a list of key-value pairs.
+		 */
+		explicit
+		Datatable2D (std::initializer_list<typename DataMap::value_type>&&);
+
+		// Copy ctor
+		Datatable2D (Datatable2D const&) = default;
+
+		// Move ctor
+		Datatable2D (Datatable2D&&);
+
+		// Copy operator
+		Datatable2D&
+		operator= (Datatable2D const&) = default;
+
+		// Move operator
+		Datatable2D&
+		operator= (Datatable2D&&);
 
 		/**
 		 * Return value for given argument.
 		 * Result will be defined only if argument is within bounds of data-table arguments.
 		 * The result will be interpolated.
 		 */
-		Optional<Value>
+		std::optional<Value>
 		value (Argument const&) const noexcept;
 
 		/**
@@ -88,6 +113,12 @@ template<class pArgument, class pValue>
 		 */
 		Value
 		extrapolated_value (Argument const&) const noexcept;
+
+		/**
+		 * Alias for extrapolated_value().
+		 */
+		Value
+		operator() (Argument const&) const noexcept;
 
 		/**
 		 * Return the point of minimum known argument.
@@ -150,6 +181,12 @@ template<class pArgument, class pValue>
 		Value
 		average (Range<Argument> domain) const;
 
+		/**
+		 * Return reference to underlying map of values used by this Datatable2D.
+		 */
+		DataMap const&
+		data_map() const;
+
 	  private:
 		/**
 		 * Return interpolated value.
@@ -159,9 +196,9 @@ template<class pArgument, class pValue>
 		in_domain_value (Argument const&) const noexcept;
 
 	  private:
-		DataMap					_data_map;
-		mutable Optional<Point>	_cached_min_value;
-		mutable Optional<Point>	_cached_max_value;
+		DataMap											_data_map;
+		xf::Synchronized<std::optional<Point>> mutable	_cached_min_value;
+		xf::Synchronized<std::optional<Point>> mutable	_cached_max_value;
 	};
 
 
@@ -186,8 +223,39 @@ template<class A, class V>
 
 
 template<class A, class V>
-	inline Optional<typename Datatable2D<A, V>::Value>
+	inline
+	Datatable2D<A, V>::Datatable2D (std::initializer_list<typename DataMap::value_type>&& pairs):
+		_data_map (std::move (pairs))
+	{
+		if (_data_map.empty())
+			throw EmptyDomainException();
+	}
+
+
+template<class A, class V>
+	inline
+	Datatable2D<A, V>::Datatable2D (Datatable2D&& other):
+		_data_map (std::move (other._data_map)),
+		_cached_min_value (other._cached_min_value),
+		_cached_max_value (other._cached_max_value)
+	{ }
+
+
+template<class A, class V>
+	inline Datatable2D<A, V>&
+	Datatable2D<A, V>::operator= (Datatable2D&& other)
+	{
+		_data_map = std::move (other._data_map);
+		_cached_min_value = other._cached_min_value;
+		_cached_max_value = other._cached_max_value;
+		return *this;
+	}
+
+
+template<class A, class V>
+	inline auto
 	Datatable2D<A, V>::value (Argument const& argument) const noexcept
+		-> std::optional<Value>
 	{
 		// Outside of domain?
 		if (argument < _data_map.begin()->first ||
@@ -201,8 +269,9 @@ template<class A, class V>
 
 
 template<class A, class V>
-	inline typename Datatable2D<A, V>::Value
+	inline auto
 	Datatable2D<A, V>::extrapolated_value (Argument const& argument) const noexcept
+		-> Value
 	{
 		if (_data_map.size() == 1)
 			return _data_map.begin()->second;
@@ -226,82 +295,107 @@ template<class A, class V>
 
 
 template<class A, class V>
-	inline typename Datatable2D<A, V>::Point
+	inline auto
+	Datatable2D<A, V>::operator() (Argument const& argument) const noexcept
+		-> Value
+	{
+		return extrapolated_value (argument);
+	}
+
+
+template<class A, class V>
+	inline auto
 	Datatable2D<A, V>::min_argument() const noexcept
+		-> Point
 	{
 		return { _data_map.begin()->first, _data_map.begin()->second };
 	}
 
 
 template<class A, class V>
-	inline typename Datatable2D<A, V>::Point
+	inline auto
 	Datatable2D<A, V>::max_argument() const noexcept
+		-> Point
 	{
 		return { _data_map.rbegin()->first, _data_map.rbegin()->second };
 	}
 
 
 template<class A, class V>
-	inline typename Datatable2D<A, V>::Point
+	inline auto
 	Datatable2D<A, V>::min_value() const noexcept
+		-> Point
 	{
-		if (!_cached_min_value)
+		auto cached_min_value = _cached_min_value.lock();
+
+		if (!*cached_min_value)
 		{
 			auto min = _data_map.begin();
+
 			for (auto i = min; i != _data_map.end(); ++i)
 				if (i->second < min->second)
 					min = i;
-			_cached_min_value = Point { min->first, min->second };
+
+			*cached_min_value = Point { min->first, min->second };
 		}
 
-		return *_cached_min_value;
+		return **cached_min_value;
 	}
 
 
 template<class A, class V>
-	inline typename Datatable2D<A, V>::Point
+	inline auto
 	Datatable2D<A, V>::max_value() const noexcept
+		-> Point
 	{
-		if (!_cached_max_value)
+		auto cached_max_value = _cached_max_value.lock();
+
+		if (!*cached_max_value)
 		{
 			auto max = _data_map.begin();
+
 			for (auto i = max; i != _data_map.end(); ++i)
 				if (i->second > max->second)
 					max = i;
-			_cached_max_value = Point { max->first, max->second };
+
+			*cached_max_value = Point { max->first, max->second };
 		}
 
-		return *_cached_max_value;
+		return **cached_max_value;
 	}
 
 
 template<class A, class V>
-	inline Range<typename Datatable2D<A, V>::Argument>
+	inline auto
 	Datatable2D<A, V>::domain() const noexcept
+		-> Range<Argument>
 	{
 		return { min_argument().argument, max_argument().argument };
 	}
 
 
 template<class A, class V>
-	inline Range<typename Datatable2D<A, V>::Value>
+	inline auto
 	Datatable2D<A, V>::codomain() const noexcept
+		-> Range<Value>
 	{
 		return { min_value().value, max_value().value };
 	}
 
 
 template<class A, class V>
-	inline std::vector<typename Datatable2D<A, V>::Point>
+	inline auto
 	Datatable2D<A, V>::arguments (Value const& value) const
+		-> std::vector<Point>
 	{
 		return arguments (value, domain());
 	}
 
 
 template<class A, class V>
-	inline std::vector<typename Datatable2D<A, V>::Point>
+	inline auto
 	Datatable2D<A, V>::arguments (Value const& value, Range<Argument> search_domain) const
+		-> std::vector<Point>
 	{
 		if (_data_map.size() >= 2)
 		{
@@ -350,20 +444,22 @@ template<class A, class V>
 
 
 template<class A, class V>
-	inline typename Datatable2D<A, V>::Value
+	inline auto
 	Datatable2D<A, V>::average() const
+		-> Value
 	{
 		return average (domain());
 	}
 
 
 template<class A, class V>
-	inline typename Datatable2D<A, V>::Value
+	inline auto
 	Datatable2D<A, V>::average (Range<Argument> search_domain) const
+		-> Value
 	{
 		if (_data_map.size() > 1)
 		{
-			Range<std::pair<Argument, Value>> search_domain_2 {
+			Range search_domain_2 {
 				std::make_pair (search_domain.min(), Value()),
 				std::make_pair (search_domain.max(), Value()),
 			};
@@ -424,14 +520,24 @@ template<class A, class V>
 
 
 template<class A, class V>
-	inline typename Datatable2D<A, V>::Value
+	inline auto
+	Datatable2D<A, V>::data_map() const
+		-> DataMap const&
+	{
+		return _data_map;
+	}
+
+
+template<class A, class V>
+	inline auto
 	Datatable2D<A, V>::in_domain_value (Argument const& argument) const noexcept
+		-> Value
 	{
 		auto range = extended_adjacent_find (_data_map.begin(), _data_map.end(), argument,
 											 [](auto pair) { return pair.first; });
 
-		Range<Argument> from { range.first->first, range.second->first };
-		Range<Value> to { range.first->second, range.second->second };
+		Range from { range.first->first, range.second->first };
+		Range to { range.first->second, range.second->second };
 
 		return renormalize (argument, from, to);
 	}

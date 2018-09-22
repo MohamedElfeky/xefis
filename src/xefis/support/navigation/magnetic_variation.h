@@ -14,8 +14,8 @@
  * Visit http://www.gnu.org/licenses/gpl-3.0.html for more information on licensing.
  */
 
-#ifndef XEFIS__SUPPORT__NAVIGATION__MAGNETIC_DECLINATION_H__INCLUDED
-#define XEFIS__SUPPORT__NAVIGATION__MAGNETIC_DECLINATION_H__INCLUDED
+#ifndef XEFIS__SUPPORT__NAVIGATION__MAGNETIC_VARIATION_H__INCLUDED
+#define XEFIS__SUPPORT__NAVIGATION__MAGNETIC_VARIATION_H__INCLUDED
 
 // Standard:
 #include <cstddef>
@@ -27,6 +27,41 @@
 
 namespace xf {
 
+/**
+ * Original implementation wrapped in an object, so it doesn't work on a global state (sic!)
+ */
+class MagneticVariationImpl
+{
+  public:
+	// Ctor
+	MagneticVariationImpl();
+
+	unsigned long int
+	yymmdd_to_julian_days (int yyyy, int mm, int dd);
+
+	double
+	calc_magvar (double lat, double lon, double h, long dat, double* field);
+
+#ifdef TEST_NHV_HACKS
+	double
+	SGMagVarOrig (double lat, double lon, double h, long dat, double* field);
+#endif // TEST_NHV_HACKS
+
+  private:
+	double	P[13][13];
+	double	DP[13][13];
+	double	gnm[13][13];
+	double	hnm[13][13];
+	double	sm[13];
+	double	cm[13];
+	double	root[13];
+	double	roots[13][13][2];
+};
+
+
+/**
+ * The main API
+ */
 class MagneticVariation
 {
   public:
@@ -67,11 +102,12 @@ class MagneticVariation
 	magnetic_inclination() const;
 
   private:
-	LonLat	_position;
-	Length	_altitude_amsl;
-	long	_julian_date;
-	Angle	_magnetic_declination;
-	Angle	_magnetic_inclination;
+	LonLat					_position;
+	Length					_altitude_amsl;
+	long					_julian_date;
+	Angle					_magnetic_declination;
+	Angle					_magnetic_inclination;
+	MagneticVariationImpl	_implementation;
 };
 
 

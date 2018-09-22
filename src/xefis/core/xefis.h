@@ -23,26 +23,19 @@
 #include <boost/lexical_cast.hpp>
 
 // Qt:
-#include <QtCore/QTimer>
-#include <QtWidgets/QApplication>
+#include <QTimer>
+#include <QApplication>
 
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/utility/logger.h>
+#include <xefis/core/graphics.h>
+#include <xefis/core/logger.h>
+#include <xefis/core/system.h>
+#include <xefis/core/components/configurator/configurator_widget.h>
 
 
 namespace xf {
 
-class NavaidStorage;
-class ModuleManager;
-class WindowManager;
-class SoundManager;
-class ConfigReader;
-class WorkPerformer;
-class ConfiguratorWidget;
-class Accounting;
-class Airframe;
-class System;
 class Machine;
 
 
@@ -57,7 +50,8 @@ class Xefis: public QApplication
 	class NonValuedArgumentException: public Exception
 	{
 	  public:
-		explicit NonValuedArgumentException (std::string const& argument);
+		explicit
+		NonValuedArgumentException (std::string const& argument);
 	};
 
 	/**
@@ -66,7 +60,8 @@ class Xefis: public QApplication
 	class MissingValueException: public Exception
 	{
 	  public:
-		explicit MissingValueException (std::string const& argument);
+		explicit
+		MissingValueException (std::string const& argument);
 	};
 
 	/**
@@ -75,7 +70,8 @@ class Xefis: public QApplication
 	class UninitializedServiceException: public Exception
 	{
 	  public:
-		explicit UninitializedServiceException (std::string const& service_name);
+		explicit
+		UninitializedServiceException (std::string const& service_name);
 	};
 
 	class QuitInstruction { };
@@ -88,18 +84,19 @@ class Xefis: public QApplication
 	class OptionsHelper
 	{
 	  public:
-		// Ctor:
-		OptionsHelper (Xefis*);
+		// Ctor
+		explicit
+		OptionsHelper (Xefis const&);
 
-		Optional<int>
+		std::optional<int>
 		watchdog_write_fd() const noexcept;
 
-		Optional<int>
+		std::optional<int>
 		watchdog_read_fd() const noexcept;
 
 	  private:
-		Optional<int>	_watchdog_write_fd;
-		Optional<int>	_watchdog_read_fd;
+		std::optional<int>	_watchdog_write_fd;
+		std::optional<int>	_watchdog_read_fd;
 	};
 
 	// Options related to command line arguments.
@@ -114,10 +111,8 @@ class Xefis: public QApplication
 
   public:
 	// Ctor
+	explicit
 	Xefis (int& argc, char** argv);
-
-	// Dtor
-	~Xefis();
 
 	/**
 	 * Override and catch exceptions.
@@ -132,71 +127,31 @@ class Xefis: public QApplication
 	quit();
 
 	/**
-	 * Return Accounting object.
-	 * Used to track timings and overall response times.
-	 */
-	Accounting*
-	accounting() const;
-
-	/**
-	 * Return ModuleManager object.
-	 */
-	ModuleManager*
-	module_manager() const;
-
-	/**
-	 * Return WindowManager object.
-	 */
-	WindowManager*
-	window_manager() const;
-
-	/**
-	 * Return SoundManager object.
-	 */
-	SoundManager*
-	sound_manager() const;
-
-	/**
-	 * Return ConfigReader object.
-	 */
-	ConfigReader*
-	config_reader() const;
-
-	/**
-	 * Return pointer to navaid storage.
-	 */
-	NavaidStorage*
-	navaid_storage() const;
-
-	/**
-	 * Return WorkPerformer.
-	 */
-	WorkPerformer*
-	work_performer() const;
-
-	/**
-	 * Return Airframe object.
-	 */
-	Airframe*
-	airframe() const;
-
-	/**
 	 * Return System object.
 	 */
-	System*
+	[[nodiscard]]
+	System&
 	system() const;
+
+	/**
+	 * Return the Graphics object.
+	 */
+	Graphics&
+	graphics() const;
 
 	/**
 	 * Return configurator widget.
 	 * May return nullptr, if configurator widget is disabled
 	 * (eg. for instrument-less configurations of XEFIS).
 	 */
-	ConfiguratorWidget*
+	[[nodiscard]]
+	ConfiguratorWidget&
 	configurator_widget() const;
 
 	/**
 	 * Return true if application was run with given command-line option.
 	 */
+	[[nodiscard]]
 	bool
 	has_option (Option) const;
 
@@ -204,6 +159,7 @@ class Xefis: public QApplication
 	 * Return value of given command-line options.
 	 * If no value was given, return empty string.
 	 */
+	[[nodiscard]]
 	std::string
 	option (Option) const;
 
@@ -211,15 +167,16 @@ class Xefis: public QApplication
 	 * Return Options object that contains methods for retrieving
 	 * various options with correct type.
 	 */
+	[[nodiscard]]
 	OptionsHelper const&
 	options() const noexcept;
 
-  private slots:
 	/**
-	 * Called by data updater. Causes call of data_updated() on all modules.
+	 * Return logger to use by machines.
 	 */
-	void
-	data_updated();
+	[[nodiscard]]
+	Logger const&
+	logger() const noexcept;
 
   private:
 	/**
@@ -234,36 +191,18 @@ class Xefis: public QApplication
 	static void
 	print_copyrights (std::ostream&);
 
-	/**
-	 * UNIX signal handler. Calls quit() on Xefis instance.
-	 */
-	static void
-	s_quit (int);
-
   private:
-	static Xefis*					_xefis;
-	static Logger					_logger;
+	LoggerOutput						_logger_output	{ std::clog };
+	Logger								_logger			{ _logger_output };
+	OptionsMap							_options;
+	QTimer*								_posix_signals_check_timer;
 
-	Unique<System>					_system;
-	Unique<WorkPerformer>			_work_performer;
-	Unique<Accounting>				_accounting;
-	Unique<SoundManager>			_sound_manager;
-	Unique<NavaidStorage>			_navaid_storage;
-	Unique<WindowManager>			_window_manager;
-	// Note: it is important that the _module_manager is after _window_manager, so that
-	// upon destruction, _module_manager deletes all instruments first, and prevents
-	// _window_manager deleting them like they were managed by parent QObjects.
-	// Unfortunately Qt doesn't allow inserting a widget into a window without creating parent-child
-	// relationship, or at least marking such children not to be deleted by their parent,
-	// so we have to make workarounds like this.
-	Unique<ModuleManager>			_module_manager;
-	Unique<ConfigReader>			_config_reader;
-	Unique<ConfiguratorWidget>		_configurator_widget;
-	Unique<Airframe>				_airframe;
-	Unique<OptionsHelper>			_options_helper;
-	Unique<Machine>					_machine;
-	QTimer*							_data_updater = nullptr;
-	OptionsMap						_options;
+	// Basic subsystems:
+	std::unique_ptr<System>				_system;
+	std::unique_ptr<ConfiguratorWidget>	_configurator_widget;
+	std::unique_ptr<OptionsHelper>		_options_helper;
+	std::unique_ptr<Graphics>			_graphics;
+	std::unique_ptr<Machine>			_machine;
 };
 
 
@@ -286,117 +225,58 @@ Xefis::UninitializedServiceException::UninitializedServiceException (std::string
 
 
 inline
-Xefis::OptionsHelper::OptionsHelper (Xefis* xefis)
+Xefis::OptionsHelper::OptionsHelper (Xefis const& xefis)
 {
-	if (xefis->has_option (Xefis::Option::WatchdogWriteFd))
-		_watchdog_write_fd = boost::lexical_cast<int> (xefis->option (Xefis::Option::WatchdogWriteFd));
+	// TODO instead of has_option use std::optional<>
+	if (xefis.has_option (Xefis::Option::WatchdogWriteFd))
+		_watchdog_write_fd = boost::lexical_cast<int> (xefis.option (Xefis::Option::WatchdogWriteFd));
 
-	if (xefis->has_option (Xefis::Option::WatchdogReadFd))
-		_watchdog_read_fd = boost::lexical_cast<int> (xefis->option (Xefis::Option::WatchdogReadFd));
+	if (xefis.has_option (Xefis::Option::WatchdogReadFd))
+		_watchdog_read_fd = boost::lexical_cast<int> (xefis.option (Xefis::Option::WatchdogReadFd));
 }
 
 
-inline Optional<int>
+inline std::optional<int>
 Xefis::OptionsHelper::watchdog_write_fd() const noexcept
 {
 	return _watchdog_write_fd;
 }
 
 
-inline Optional<int>
+inline std::optional<int>
 Xefis::OptionsHelper::watchdog_read_fd() const noexcept
 {
 	return _watchdog_read_fd;
 }
 
 
-inline Accounting*
-Xefis::accounting() const
-{
-	if (!_accounting)
-		throw UninitializedServiceException ("Accounting");
-	return _accounting.get();
-}
-
-
-inline ModuleManager*
-Xefis::module_manager() const
-{
-	if (!_module_manager)
-		throw UninitializedServiceException ("ModuleManager");
-	return _module_manager.get();
-}
-
-
-inline WindowManager*
-Xefis::window_manager() const
-{
-	if (!_window_manager)
-		throw UninitializedServiceException ("WindowManager");
-	return _window_manager.get();
-}
-
-
-inline SoundManager*
-Xefis::sound_manager() const
-{
-	if (!_sound_manager)
-		throw UninitializedServiceException ("SoundManager");
-	return _sound_manager.get();
-}
-
-
-inline ConfigReader*
-Xefis::config_reader() const
-{
-	if (!_config_reader)
-		throw UninitializedServiceException ("ConfigReader");
-	return _config_reader.get();
-}
-
-
-inline NavaidStorage*
-Xefis::navaid_storage() const
-{
-	if (!_navaid_storage)
-		throw UninitializedServiceException ("NavaidStorage");
-	return _navaid_storage.get();
-}
-
-
-inline WorkPerformer*
-Xefis::work_performer() const
-{
-	if (!_work_performer)
-		throw UninitializedServiceException ("WorkPerformer");
-	return _work_performer.get();
-}
-
-
-inline Airframe*
-Xefis::airframe() const
-{
-	if (!_airframe)
-		throw UninitializedServiceException ("Airframe");
-	return _airframe.get();
-}
-
-
-inline System*
+inline System&
 Xefis::system() const
 {
 	if (!_system)
 		throw UninitializedServiceException ("System");
-	return _system.get();
+
+	return *_system.get();
 }
 
 
-inline ConfiguratorWidget*
+inline Graphics&
+Xefis::graphics() const
+{
+	if (!_graphics)
+		throw UninitializedServiceException ("Graphics");
+
+	return *_graphics.get();
+}
+
+
+inline ConfiguratorWidget&
 Xefis::configurator_widget() const
 {
 	if (!_configurator_widget)
 		throw UninitializedServiceException ("ConfiguratorWidget");
-	return _configurator_widget.get();
+
+	return *_configurator_widget.get();
 }
 
 
@@ -410,8 +290,7 @@ Xefis::has_option (Option option) const
 inline std::string
 Xefis::option (Option option) const
 {
-	auto o = _options.find (option);
-	if (o != _options.end())
+	if (auto o = _options.find (option); o != _options.end())
 		return o->second;
 	else
 		return std::string();
@@ -422,6 +301,13 @@ inline Xefis::OptionsHelper const&
 Xefis::options() const noexcept
 {
 	return *_options_helper;
+}
+
+
+inline Logger const&
+Xefis::logger() const noexcept
+{
+	return _logger;
 }
 
 } // namespace xf

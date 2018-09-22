@@ -22,7 +22,7 @@
 
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/utility/resource.h>
+#include <xefis/utility/responsibility.h>
 
 // Qt:
 #include <QtCore/QFile>
@@ -41,6 +41,7 @@ class QZDevice: public QIODevice
 	/**
 	 * File is a gzip file.
 	 */
+	explicit
 	QZDevice (QFile* gz_file, QObject* parent = nullptr);
 
 	// QIODevice API
@@ -89,7 +90,7 @@ class QZDevice: public QIODevice
 	std::vector<uint8_t>	_decompressed_buffer;
 	std::size_t				_decompressed_avail	= 0;
 	::z_stream				_ctx;
-	Resource				_ctx_resource;
+	Responsibility			_ctx_responsibility;
 	bool					_z_at_eof			= false;
 	bool					_need_pull			= true;
 };

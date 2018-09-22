@@ -23,198 +23,166 @@
 
 namespace xf {
 
-class Action
+/**
+ * Checks if an action should be executed based on value of some properties and saved state.
+ */
+class PropAction
 {
   public:
-	virtual void
-	data_updated() = 0;
+	/**
+	 * Tell whether condition was met to execute an action.
+	 */
+	virtual bool
+	operator()() = 0;
 };
 
 
-class ButtonAction: public Action
+class SerialChanged: public PropAction
 {
   public:
-	typedef std::function<void()> Callback;
+	using Serial	= BasicProperty::Serial;
 
   public:
 	// Ctor
-	ButtonAction (PropertyBoolean button, Callback callback):
-		_button (button),
-		_callback (callback)
+	explicit
+	SerialChanged (BasicProperty& property):
+		_property (property)
 	{ }
 
-	// Action API
-	void
-	data_updated() override
-	{
-		if (_button.fresh() && *_button)
-			_callback();
-	}
-
-  protected:
-	PropertyBoolean	_button;
-	Callback		_callback;
-};
-
-
-class ToggleButtonAction: public Action
-{
-  public:
-	typedef std::function<void (bool)> Callback;
-
-  public:
-	// Ctor
-	ToggleButtonAction (PropertyPath const& button_path, PropertyPath const& toggle_path)
-	{
-		_button.set_path (button_path);
-		_toggle.set_path (toggle_path);
-	}
-
-	/**
-	 * Set press callback.
-	 */
-	void
-	set_callback (Callback callback)
-	{
-		_callback = callback;
-	}
-
-	/**
-	 * Set to mode that disallows resetting state
-	 * by another press.
-	 */
-	void
-	set_radio_mode()
-	{
-		_radio_mode = true;
-	}
-
-	/**
-	 * Return true if button is pressed.
-	 */
+	// PropAction API
 	bool
-	pressed() const
+	operator()() override
 	{
-		return _button.read (false);
-	}
+		auto new_serial = _property.serial();
 
-	/**
-	 * Set toggle to false.
-	 */
-	void
-	reset()
-	{
-		_toggle.write (false);
-		call();
-	}
-
-	/**
-	 * Return LED state.
-	 */
-	bool
-	active() const
-	{
-		return _toggle.read (false);
-	}
-
-	/**
-	 * Select this option.
-	 */
-	void
-	select()
-	{
-		if (_radio_mode)
-			_toggle.write (true);
-		else
-			_toggle.write (!_toggle.read (false));
-		call();
-	}
-
-	/**
-	 * Call the callback.
-	 */
-	void
-	call()
-	{
-		if (_callback)
-			_callback (_toggle.read (false));
-	}
-
-	// Action API
-	void
-	data_updated() override
-	{
-		if (_button.fresh() && *_button)
-			select();
-	}
-
-  protected:
-	PropertyBoolean	_button;
-	PropertyBoolean	_toggle;
-	Callback		_callback;
-	bool			_radio_mode = false;
-};
-
-
-class ButtonOptionsAction: public Action
-{
-  public:
-	class Option
-	{
-	  public:
-		// Ctor
-		Option (std::string const& button_path, std::string const& toggle_path, int value, bool is_default = false):
-			button (PropertyPath (button_path), PropertyPath (toggle_path)),
-			value (value),
-			is_default (is_default)
+		if (new_serial != _serial)
 		{
-			button.set_radio_mode();
+			_serial = new_serial;
+			return true;
 		}
 
-		ToggleButtonAction	button;
-		int					value;
-		bool				is_default;
-	};
-
-	typedef std::vector<Option> Options;
-
-  public:
-	// Ctor
-	ButtonOptionsAction (PropertyPath const& value_path, Options const& options):
-		_options (options)
-	{
-		_value_target.set_path (value_path);
-
-		// Press the "default" button:
-		for (Option& option: _options)
-			if (option.is_default)
-				option.button.select();
-	}
-
-	// Action API
-	void
-	data_updated() override
-	{
-		for (Option& option: _options)
-			option.button.data_updated();
-
-		for (Option& option: _options)
-		{
-			if (option.button.pressed())
-			{
-				for (Option& option_to_reset: _options)
-					if (&option_to_reset != &option)
-						option_to_reset.button.reset();
-				_value_target.write (option.value);
-				break;
-			}
-		}
+		return false;
 	}
 
   private:
-	Options			_options;
-	PropertyInteger	_value_target;
+	Serial			_serial	{ 0 };
+	BasicProperty&	_property;
 };
+
+
+/**
+ * Checks whether a property changed its value since last check.
+ */
+template<class pValue>
+	class PropChanged: public PropAction
+	{
+	  public:
+		using Value			= pValue;
+		using OptionalValue	= std::optional<Value>;
+		using Property		= xf::Property<Value>;
+
+	  public:
+		// Ctor
+		explicit
+		PropChanged (Property const& property):
+			_property (property),
+			_last_value (property.get_optional())
+		{ }
+
+		// PropAction API
+		bool
+		operator()() override
+		{
+			auto current_value = _property.get_optional();
+
+			if (_last_value != current_value)
+			{
+				_last_value = current_value;
+				return true;
+			}
+
+			return false;
+		}
+
+		/**
+		 * Return reference to observed property.
+		 */
+		Property const&
+		property() const noexcept
+		{
+			return _property;
+		}
+
+	  private:
+		Property const&	_property;
+		OptionalValue	_last_value;
+	};
+
+
+/**
+ * Checks whether a property has changed and has now given value.
+ */
+template<class pValue>
+	class PropChangedTo: public PropChanged<pValue>
+	{
+	  public:
+		using Value			= pValue;
+		using OptionalValue	= typename PropChanged<Value>::OptionalValue;
+		using Property		= typename PropChanged<Value>::Property;
+
+	  public:
+		// Ctor
+		constexpr
+		PropChangedTo (Property const& property, Value value):
+			PropChanged<Value> (property),
+			_expected_value (value)
+		{ }
+
+		// PropAction API
+		bool
+		operator()() override
+		{
+			return PropChanged<Value>::operator()()
+				&& this->property().valid()
+				&& *this->property() == expected_value();
+		}
+
+		/**
+		 * Return the value this observer expects.
+		 */
+		constexpr Value
+		expected_value() const noexcept
+		{
+			return _expected_value;
+		}
+
+	  private:
+		Value _expected_value;
+	};
+
+
+/**
+ * Checks whether a property changed to nil.
+ */
+template<class pValue>
+	class ChangedToNil: public PropChanged<pValue>
+	{
+	  public:
+		using Value			= pValue;
+		using OptionalValue	= typename PropChanged<Value>::OptionalValue;
+		using Property		= typename PropChanged<Value>::Property;
+
+	  public:
+		using PropChanged<Value>::PropChanged;
+
+		// PropAction API
+		bool
+		operator()() override
+		{
+			return PropChanged<Value>::operator()
+				&& this->property().is_nil();
+		}
+	};
 
 } // namespace xf
 

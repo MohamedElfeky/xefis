@@ -30,9 +30,13 @@
 
 // Xefis:
 #include <xefis/utility/backtrace.h>
+#include <xefis/utility/demangle.h>
 
 
 namespace xf {
+
+class Logger;
+
 
 class Exception: public std::exception
 {
@@ -40,32 +44,30 @@ class Exception: public std::exception
 	/**
 	 * Create exception object.
 	 * \param	message
-	 * 			Message for user. Don't capitalize first letter, and don't add dot at the end.
-	 * 			It should be a simple phrase, that can be embedded into a bigger sentence.
+	 *			Message for user. Don't capitalize first letter, and don't add dot at the end.
+	 *			It should be a simple phrase, that can be embedded into a bigger sentence.
 	 */
-	Exception (const char* message, Exception const* inner = nullptr);
+	explicit
+	Exception (const char* message);
 
 	/**
 	 * Convenience function.
 	 */
-	Exception (std::string const& message, Exception const* inner = nullptr);
+	explicit
+	Exception (std::string const& message);
 
 	/**
 	 * Convenience function.
 	 */
-	Exception (QString const& message, Exception const* inner = nullptr);
+	explicit
+	Exception (QString const& message);
 
 	// Dtor
-	virtual ~Exception() noexcept;
+	virtual
+	~Exception() noexcept;
 
 	// Ctor
 	Exception (Exception const&) = default;
-
-	/**
-	 * Return true if this exception wraps another exception.
-	 */
-	bool
-	has_inner() const noexcept;
 
 	/**
 	 * Return plain exception message.
@@ -80,13 +82,6 @@ class Exception: public std::exception
 	message() const;
 
 	/**
-	 * Return message of the wrapped exception, if there's any.
-	 * If there is none, return empty string.
-	 */
-	std::string const&
-	inner_message() const;
-
-	/**
 	 * Return backtrace created when the exception was constructed.
 	 */
 	Backtrace const&
@@ -99,13 +94,6 @@ class Exception: public std::exception
 	backtrace_hidden() const noexcept;
 
 	/**
-	 * Same as guard_and_rethrow, but doesn't rethrow. Instead it returns
-	 * true if exception occured, and false otherwise.
-	 */
-	static bool
-	guard (std::function<void()> guarded_code);
-
-	/**
 	 * Execute guarded_code and catch exceptions. If exception is catched,
 	 * it's logged and rethrown. If exception is of type xf::Exceptions,
 	 * it's full message is logged (backtrace, etc). Boost and standard
@@ -113,7 +101,21 @@ class Exception: public std::exception
 	 * just cause mentioning an exception.
 	 */
 	static void
-	guard_and_rethrow (std::function<void()> guarded_code);
+	log (Logger const&, std::function<void()> guarded_code);
+
+	/**
+	 * Similar to log, but doesn't rethrow.
+	 * Returns true if exception was thrown and catched.
+	 */
+	static bool
+	catch_and_log (Logger const&, std::function<void()> guarded_code);
+
+	/**
+	 * Terminate program after printing message on std::cerr.
+	 */
+	[[noreturn]]
+	static void
+	terminate (std::string_view message);
 
   protected:
 	/**
@@ -125,62 +127,36 @@ class Exception: public std::exception
 	hide_backtrace() noexcept;
 
   private:
-	bool		_has_inner		= false;
 	bool		_hide_backtrace	= false;
 	std::string	_what;
 	std::string	_message;
-	std::string	_inner_message;
 	Backtrace	_backtrace;
 };
 
 
-inline std::ostream&
-operator<< (std::ostream& os, Exception const& e)
-{
-	os << e.message();
-	if (!e.backtrace_hidden())
-		os << std::endl << e.backtrace();
-	return os;
-}
-
-
 inline
-Exception::Exception (const char* message, Exception const* inner):
-	Exception (std::string (message), inner)
+Exception::Exception (const char* message):
+	Exception (std::string (message))
 { }
 
 
 inline
-Exception::Exception (std::string const& message, Exception const* inner):
+Exception::Exception (std::string const& message):
 	_what (message),
-	_message (message)
-{
-	if (inner)
-	{
-		_message += "; cause: " + inner->message();
-		_inner_message = inner->message();
-		_hide_backtrace = inner->backtrace_hidden();
-		_backtrace = inner->backtrace();
-	}
-}
+	_message (message),
+	_backtrace (xf::backtrace())
+{ }
 
 
 inline
-Exception::Exception (QString const& message, Exception const* inner):
-	Exception (message.toStdString(), inner)
+Exception::Exception (QString const& message):
+	Exception (message.toStdString())
 { }
 
 
 inline
 Exception::~Exception() noexcept
 { }
-
-
-inline bool
-Exception::has_inner() const noexcept
-{
-	return _has_inner;
-}
 
 
 inline const char*
@@ -194,13 +170,6 @@ inline std::string const&
 Exception::message() const
 {
 	return _message;
-}
-
-
-inline std::string const&
-Exception::inner_message() const
-{
-	return _inner_message;
 }
 
 
@@ -218,49 +187,6 @@ Exception::backtrace_hidden() const noexcept
 }
 
 
-inline bool
-Exception::guard (std::function<void()> guarded_code)
-{
-	try {
-		guard_and_rethrow (guarded_code);
-	}
-	catch (...)
-	{
-		return true;
-	}
-	return false;
-}
-
-
-inline void
-Exception::guard_and_rethrow (std::function<void()> guarded_code)
-{
-	try {
-		guarded_code();
-	}
-	catch (Exception const& e)
-	{
-		std::cerr << e << std::endl;
-		throw;
-	}
-	catch (boost::exception const& e)
-	{
-		std::cerr << "boost::exception " << typeid (e).name() << std::endl;
-		throw;
-	}
-	catch (std::exception const& e)
-	{
-		std::cerr << "std::exception " << typeid (e).name() << std::endl;
-		throw;
-	}
-	catch (...)
-	{
-		std::cerr << "unknown exception" << std::endl;
-		throw;
-	}
-}
-
-
 inline void
 Exception::hide_backtrace() noexcept
 {
@@ -270,32 +196,11 @@ Exception::hide_backtrace() noexcept
 
 namespace exception_ops {
 
-inline std::ostream&
-operator<< (std::ostream& out, std::exception_ptr const& eptr)
-{
-	try {
-		if (eptr)
-			std::rethrow_exception (eptr);
-	}
-	catch (Exception const& e)
-	{
-		out << e << std::endl;
-	}
-	catch (boost::exception const& e)
-	{
-		out << "boost::exception " << typeid (e).name() << std::endl;
-	}
-	catch (std::exception const& e)
-	{
-		out << "std::exception " << typeid (e).name() << std::endl;
-	}
-	catch (...)
-	{
-		out << "unknown exception" << std::endl;
-	}
+std::ostream&
+operator<< (std::ostream&, Exception const&);
 
-	return out;
-}
+std::ostream&
+operator<< (std::ostream&, std::exception_ptr const&);
 
 } // namespace exception_ops
 

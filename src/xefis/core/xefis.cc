@@ -28,22 +28,16 @@
 
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/airframe/airframe.h>
-#include <xefis/core/services.h>
-#include <xefis/core/property_storage.h>
-#include <xefis/core/accounting.h>
-#include <xefis/core/module_manager.h>
-#include <xefis/core/window_manager.h>
-#include <xefis/core/sound_manager.h>
-#include <xefis/core/config_reader.h>
-#include <xefis/core/navaid_storage.h>
-#include <xefis/core/work_performer.h>
+#include <xefis/core/components/configurator/configurator_widget.h>
+#include <xefis/core/fail.h>
 #include <xefis/core/system.h>
 #include <xefis/core/licenses.h>
-#include <xefis/components/configurator/configurator_widget.h>
+#include <xefis/support/airframe/airframe.h>
+#include <xefis/support/system/work_performer.h>
+#include <xefis/support/ui/sound_manager.h>
 #include <xefis/utility/time_helper.h>
-// TODO machine
-#include <configs/cthulhu/cthulhu.h>
+#include <xefis/utility/demangle.h>
+#include <xefis/xefis_machine.h>
 
 // Local:
 #include "xefis.h"
@@ -51,74 +45,31 @@
 
 namespace xf {
 
-Xefis*	Xefis::_xefis = nullptr;
-Logger	Xefis::_logger;
-
-
 Xefis::Xefis (int& argc, char** argv):
 	QApplication (argc, argv)
 {
-	if (_xefis)
-		throw std::runtime_error ("can create only one Xefis object");
-	_xefis = this;
-	_logger.set_prefix ("<xefis>");
-
 	parse_args (argc, argv);
 
 	// Casting QString to std::string|const char* should yield UTF-8 encoded strings.
 	// Also encode std::strings and const chars* in UTF-8:
 	QTextCodec::setCodecForLocale (QTextCodec::codecForName ("UTF-8"));
-	// Init services:
-	Services::initialize();
-	// Init property storage:
-	PropertyStorage::initialize();
 
-	_system = std::make_unique<System>();
-	_work_performer = std::make_unique<WorkPerformer> (std::thread::hardware_concurrency());
-	_accounting = std::make_unique<Accounting>();
-	_sound_manager = std::make_unique<SoundManager>();
-	_navaid_storage = std::make_unique<NavaidStorage>();
-	_window_manager = std::make_unique<WindowManager>();
-	_module_manager = std::make_unique<ModuleManager> (this);
-	_config_reader = std::make_unique<ConfigReader> (this, _module_manager.get());
+	_system = std::make_unique<System> (_logger);
+	_graphics = std::make_unique<Graphics> (_logger);
+	_machine = ::xefis_machine (*this);
+	_configurator_widget = std::make_unique<ConfiguratorWidget> (*_machine, nullptr);
 
-	signal (SIGHUP, s_quit);
-
-	const char* config_file = getenv ("XEFIS_CONFIG");
-	if (!config_file)
-	{
-		_logger << "XEFIS_CONFIG not set, trying to read default ./xefis-config.xml" << std::endl;
-		config_file = "xefis-config.xml";
-	}
-	_config_reader->load (config_file);
-
-	_airframe = std::make_unique<Airframe> (this, _config_reader->airframe_config());
-
-	_config_reader->process_settings();
-
-	if (_config_reader->load_navaids())
-		_navaid_storage->load();
-
-	_config_reader->process_modules();
-	_config_reader->process_windows();
-
-	if (_config_reader->has_windows())
-		_configurator_widget = std::make_unique<ConfiguratorWidget> (this, nullptr);
-
-	_data_updater = new QTimer (this);
-	_data_updater->setInterval ((1.0 / _config_reader->update_frequency()).quantity<Millisecond>());
-	_data_updater->setSingleShot (false);
-	QObject::connect (_data_updater, SIGNAL (timeout()), this, SLOT (data_updated()));
-	_data_updater->start();
-
-	_machine = std::make_unique<Cthulhu> (this);
-}
-
-
-Xefis::~Xefis()
-{
-	Services::deinitialize();
-	_xefis = nullptr;
+	_posix_signals_check_timer = new QTimer (this);
+	_posix_signals_check_timer->setSingleShot (false);
+	_posix_signals_check_timer->setInterval ((100_ms).in<si::Millisecond>());
+	QObject::connect (_posix_signals_check_timer, &QTimer::timeout, [&] {
+		if (g_hup_received.load())
+		{
+			_logger << "HUP received, exiting." << std::endl;
+			quit();
+		}
+	});
+	_posix_signals_check_timer->start();
 }
 
 
@@ -128,21 +79,11 @@ Xefis::notify (QObject* receiver, QEvent* event)
 	try {
 		return QApplication::notify (receiver, event);
 	}
-	catch (Exception const& e)
-	{
-		_logger << typeid (*receiver).name() << "/" << typeid (*event).name() << " yielded xf::Exception:" << std::endl << e << std::endl;
-	}
-	catch (boost::exception const& e)
-	{
-		_logger << typeid (*receiver).name() << "/" << typeid (*event).name() << " yielded boost::exception " << typeid (e).name() << std::endl;
-	}
-	catch (std::exception const& e)
-	{
-		_logger << typeid (*receiver).name() << "/" << typeid (*event).name() << " yielded std::exception " << typeid (e).name() << std::endl;
-	}
 	catch (...)
 	{
-		_logger << typeid (*receiver).name() << "/" << typeid (*event).name() << " yielded unknown exception" << std::endl;
+		using namespace exception_ops;
+
+		_logger << demangle (typeid (*receiver)) << "/" << demangle (typeid (*event)) << " yielded exception: " << std::endl << std::current_exception() << std::endl;
 	}
 
 	return false;
@@ -154,15 +95,6 @@ Xefis::quit()
 {
 	closeAllWindows();
 	QApplication::quit();
-}
-
-
-void
-Xefis::data_updated()
-{
-	Time t = TimeHelper::now();
-	_module_manager->data_updated (t);
-	_window_manager->data_updated (t);
 }
 
 
@@ -220,7 +152,7 @@ Xefis::parse_args (int argc, char** argv)
 			throw Exception ("unrecognized option '" + arg_name + "', try --help");
 	}
 
-	_options_helper = std::make_unique<OptionsHelper> (this);
+	_options_helper = std::make_unique<OptionsHelper> (*this);
 }
 
 
@@ -248,15 +180,6 @@ Xefis::print_copyrights (std::ostream& out)
 		<< endl
 		<< licenses::lib_kdtreeplusplus << endl
 		<< endl;
-}
-
-
-void
-Xefis::s_quit (int)
-{
-	_logger << "HUP received, exiting." << std::endl;
-	if (_xefis)
-		_xefis->quit();
 }
 
 } // namespace xf

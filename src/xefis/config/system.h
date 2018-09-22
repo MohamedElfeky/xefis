@@ -20,6 +20,9 @@
 #include <cstdio>
 #include <iostream>
 
+// System:
+#include <signal.h>
+
 
 // Fixes for std::ostream which has broken support for unsigned/signed/char types
 // and prints 8-bit integers like they were characters.
@@ -41,37 +44,40 @@ operator<< (std::ostream& os, signed char i)
 } // namespace ostream_fixes
 
 
-using namespace ostream_fixes;
+// Add std::basic_string_view + std::basic_string operators.
+namespace string_view_plus_string_fixes {
 
-
-/**
- * Return size (number of elements) of an array.
- */
-template<class T, std::size_t N>
-	inline constexpr std::size_t
-	countof (T(&)[N])
+template<class CharT, class Traits, class Allocator>
+	inline std::basic_string<CharT, Traits, Allocator>
+	operator+ (std::basic_string<CharT, Traits, Allocator> const& s,
+			   std::basic_string_view<CharT, Traits> const& sv)
 	{
-		return N;
+		return std::basic_string<CharT, Traits, Allocator> (s).append (sv);
 	}
 
 
-/**
- * Return size of an array. Can be used in const expressions.
- */
-template<class T, std::size_t N>
-	inline constexpr const char (&sizer (T (&)[N]))[N];
+template<class CharT, class Traits, class Allocator>
+	inline std::basic_string<CharT, Traits, Allocator>
+	operator+ (std::basic_string_view<CharT, Traits> const& sv,
+			   std::basic_string<CharT, Traits, Allocator> const& s)
+	{
+		return std::basic_string<CharT, Traits, Allocator> (sv).append (s);
+	}
+
+} // namespace string_view_plus_string_fixes
+
+
+using namespace ostream_fixes;
+using namespace string_view_plus_string_fixes;
 
 
 inline void
-assert_function (bool expression, const char* message = nullptr) noexcept
+dynamic_assert (bool expression, const char* message = nullptr) noexcept
 {
 	if (!expression)
 	{
 		if (message)
 			std::clog << "Assertion failed: " << message << std::endl;
-#ifdef XEFIS_ENABLE_FATAL_ASSERT
-		raise (SIGTRAP);
-#endif
 	}
 }
 
@@ -83,26 +89,25 @@ assert_function (bool expression, const char* message = nullptr) noexcept
 
 #endif
 
-
 /**
  * Packed structs.
  */
 #define BEGIN_PACKED_STRUCT
 #define END_PACKED_STRUCT __attribute__((packed));
+
 /**
  * Since most of standard headers override our assert, ensure
  * that it's redefined every possible time, when this
  * header is included.
  */
-
 #undef assert
 #if XEFIS_ENABLE_ASSERT
 # include <signal.h>
 # undef assert
-# define assert assert_function
+# define assert dynamic_assert
 #else // XEFIS_ENABLE_ASSERT
 # undef assert
-# define assert(a, b...)
+# define assert(a, ...)
 #endif // XEFIS_ENABLE_ASSERT
 
 #ifdef __GNUC__

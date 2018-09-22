@@ -19,9 +19,7 @@
 #include <string>
 #include <vector>
 #include <memory>
-
-// Boost:
-#include <boost/optional.hpp>
+#include <optional>
 
 // Qt:
 #include <QtCore/QString>
@@ -37,13 +35,6 @@ using namespace si::quantities;
 using namespace si::literals;
 
 
-inline std::string
-operator"" _str (const char* string, size_t len)
-{
-    return std::string (string, len);
-}
-
-
 inline QString
 operator"" _qstr (const char* string, size_t)
 {
@@ -51,37 +42,22 @@ operator"" _qstr (const char* string, size_t)
 }
 
 
+inline half_float::half
+operator "" _half (long double value)
+{
+	return half_float::half (static_cast<float> (value));
+}
+
+
 typedef half_float::half		float16_t;
 typedef float					float32_t;
 typedef double					float64_t;
+typedef long double				float128_t;
 
 // C-compatibility:
 typedef bool					_Bool;
 
 typedef std::vector<uint8_t>	Blob;
-
-template<class Value>
-	using Optional = boost::optional<Value>;
-
-template<class Type>
-	using Shared = std::shared_ptr<Type>;
-
-template<class Type>
-	using Unique = std::unique_ptr<Type>;
-
-template<class Type>
-	using Weak = std::weak_ptr<Type>;
-
-
-template<class Target, class SourceOptional>
-	Optional<Target>
-	optional_cast_to (SourceOptional const& source)
-	{
-		if (source)
-			return Optional<Target> (*source);
-		else
-			return boost::none;
-	}
 
 #endif
 

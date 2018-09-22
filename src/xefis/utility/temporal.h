@@ -16,6 +16,7 @@
 
 // Standard:
 #include <cstddef>
+#include <type_traits>
 
 // Xefis:
 #include <xefis/config/all.h>
@@ -25,8 +26,7 @@
 namespace xf {
 
 /**
- * Container for a value with a timestamp. The timestamp gets updated
- * every time the value is updated.
+ * Container for a value with a timestamp. The timestamp gets updated every time the value is updated.
  */
 template<class tValueType>
 	class Temporal
@@ -36,10 +36,18 @@ template<class tValueType>
 
 	  public:
 		// Ctor
-		Temporal (ValueType const& value) noexcept (noexcept (ValueType (value)));
+		template<class = std::enable_if_t<std::is_default_constructible_v<ValueType>>>
+			explicit
+			Temporal() noexcept (noexcept (ValueType()))
+			{ }
 
 		// Ctor
-		Temporal (ValueType const& value, Time const& update_time) noexcept (noexcept (ValueType (value)));
+		explicit
+		Temporal (ValueType&& value) noexcept (noexcept (ValueType (value)));
+
+		// Ctor
+		explicit
+		Temporal (ValueType&& value, Time const& update_time) noexcept (noexcept (ValueType (value)));
 
 		// Copy ctor
 		Temporal (Temporal const&) = default;
@@ -56,13 +64,13 @@ template<class tValueType>
 		 * (taken from TimeHelper::now()).
 		 */
 		Temporal<ValueType>&
-		operator= (ValueType const& value) noexcept (noexcept (value = value));
+		operator= (ValueType&& value) noexcept (noexcept (value = value));
 
 		/**
 		 * Assign new value with given timestamp.
 		 */
 		void
-		set (ValueType const& value, Time const& update_time) noexcept (noexcept (value = value));
+		set (ValueType&& value, Time const& update_time) noexcept (noexcept (value = value));
 
 		/**
 		 * Return contained value.
@@ -75,6 +83,12 @@ template<class tValueType>
 		 */
 		ValueType const&
 		operator*() const noexcept;
+
+		/**
+		 * Return contained value.
+		 */
+		ValueType const*
+		operator->() const noexcept;
 
 		/**
 		 * Return update timestamp.
@@ -90,34 +104,34 @@ template<class tValueType>
 
 template<class T>
 	inline
-	Temporal<T>::Temporal (ValueType const& value) noexcept (noexcept (ValueType (value))):
-		_value (value),
+	Temporal<T>::Temporal (ValueType&& value) noexcept (noexcept (ValueType (value))):
+		_value (std::forward<ValueType> (value)),
 		_update_time (TimeHelper::now())
 	{ }
 
 
 template<class T>
 	inline
-	Temporal<T>::Temporal (ValueType const& value, Time const& update_time) noexcept (noexcept (ValueType (value))):
-		_value (value),
+	Temporal<T>::Temporal (ValueType&& value, Time const& update_time) noexcept (noexcept (ValueType (value))):
+		_value (std::forward<ValueType> (value)),
 		_update_time (update_time)
 	{ }
 
 
 template<class T>
 	inline Temporal<T>&
-	Temporal<T>::operator= (ValueType const& value) noexcept (noexcept (value = value))
+	Temporal<T>::operator= (ValueType&& value) noexcept (noexcept (value = value))
 	{
-		_value = value;
+		_value.operator= (std::forward<ValueType> (value));
 		_update_time = TimeHelper::now();
 	}
 
 
 template<class T>
 	inline void
-	Temporal<T>::set (ValueType const& value, Time const& update_time) noexcept (noexcept (value = value))
+	Temporal<T>::set (ValueType&& value, Time const& update_time) noexcept (noexcept (value = value))
 	{
-		_value = value;
+		_value.operator= (std::forward<ValueType> (value));
 		_update_time = update_time;
 	}
 
@@ -135,6 +149,14 @@ template<class T>
 	Temporal<T>::operator*() const noexcept
 	{
 		return _value;
+	}
+
+
+template<class T>
+	inline typename Temporal<T>::ValueType const*
+	Temporal<T>::operator->() const noexcept
+	{
+		return &_value;
 	}
 
 
