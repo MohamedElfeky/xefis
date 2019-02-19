@@ -16,24 +16,22 @@
 
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/core/application.h>
-#include <xefis/core/services.h>
 #include <xefis/utility/qdom.h>
-#include <xefis/widgets/panel_widget.h>
+#include <xefis/support/ui/widgets/panel_widget.h>
 
 // Local:
 #include "panel.h"
 
 
-namespace Xefis {
+namespace xf {
 
-Panel::Panel (QWidget* parent, Application* application):
-	QWidget (parent),
-	_application (application)
+// TODO test and use this?
+Panel::Panel (QWidget* parent, Graphics const& graphics):
+	QWidget (parent)
 {
 	setBackgroundRole (QPalette::Window);
 	setAutoFillBackground (true);
-	setFont (xf::Services::panel_font());
+	setFont (graphics.panel_font());
 	setSizePolicy (QSizePolicy::Expanding, QSizePolicy::Expanding);
 
 	QPalette pal = palette();
@@ -87,5 +85,5 @@ Panel::read()
 		pw->data_updated();
 }
 
-} // namespace Xefis
+} // namespace xf
 

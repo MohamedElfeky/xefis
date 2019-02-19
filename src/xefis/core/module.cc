@@ -13,202 +13,132 @@
 
 // Standard:
 #include <cstddef>
-#include <map>
-#include <set>
-
-// Qt:
-#include <QtXml/QDomElement>
-
-// Lib:
-#include <boost/format.hpp>
+#include <algorithm>
 
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/core/stdexcept.h>
-#include <xefis/utility/qdom.h>
+#include <xefis/core/property.h>
+#include <xefis/core/setting.h>
+#include <xefis/utility/demangle.h>
+#include <xefis/utility/exception_support.h>
 
 // Local:
 #include "module.h"
-#include "module_manager.h"
 
 
-namespace Xefis {
-
-Module::Module (ModuleManager* module_manager, QDomElement const& config):
-	_module_manager (module_manager),
-	_name (config.attribute ("name").toStdString()),
-	_instance (config.attribute ("instance", "").toStdString())
-{
-	_logger.set_prefix ((boost::format ("[%-30s#%-20s]") % _name % _instance).str());
-	_settings_parser = std::make_unique<ConfigReader::SettingsParser>();
-	_properties_parser = std::make_unique<ConfigReader::PropertiesParser>();
-}
-
+namespace xf {
 
 void
-Module::dump_debug_log()
+BasicModule::ProcessingLoopAPI::communicate (Cycle const& cycle)
 {
-	for (auto const& s: _settings_parser->registered_names())
-		log() << "* setting: " << s.toStdString() << std::endl;
+	try {
+		auto communication_time = TimeHelper::measure ([&] {
+			_module.communicate (cycle);
+		});
 
-	for (auto const& s: _properties_parser->registered_names())
-		log() << "* property: " << s.toStdString() << std::endl;
-}
-
-
-void
-Module::parse_settings (QDomElement const& element, ConfigReader::SettingsParser::SettingsList list)
-{
-	QDomElement settings_element;
-	if (element == "settings")
-		settings_element = element;
-	else
+		if (implements_communicate_method())
+			BasicModule::AccountingAPI (_module).add_communication_time (communication_time);
+	}
+	catch (...)
 	{
-		for (QDomElement& e: element)
+		handle_exception (cycle, "communicate()");
+	}
+}
+
+
+void
+BasicModule::ProcessingLoopAPI::fetch_and_process (Cycle const& cycle)
+{
+	try {
+		if (!_module._cached)
 		{
-			if (e == "settings")
-			{
-				if (settings_element.isNull())
-					settings_element = e;
-				else
-					throw BadConfiguration ("multiple <settings> elements");
-			}
+			_module._cached = true;
+
+			for (auto* prop: _module.io_base()->_registered_input_properties)
+				prop->fetch (cycle);
+
+			auto processing_time = TimeHelper::measure ([&] {
+				_module.process (cycle);
+			});
+
+			if (implements_process_method())
+				BasicModule::AccountingAPI (_module).add_processing_time (processing_time);
 		}
 	}
-
-	if (settings_element.isNull())
+	catch (...)
 	{
-		// If at least one of provided settings is required,
-		// throw an error.
-		if (std::any_of (list.begin(), list.end(), [](ConfigReader::SettingsParser::NameAndSetting const& s) { return s.required; }))
-			throw BadConfiguration ("missing <settings> element");
+		handle_exception (cycle, "process()");
 	}
-
-	_settings_parser = std::make_unique<ConfigReader::SettingsParser> (list);
-	_settings_parser->parse (settings_element);
 }
 
 
 void
-Module::parse_properties (QDomElement const& element, ConfigReader::PropertiesParser::PropertiesList list)
+BasicModule::ProcessingLoopAPI::handle_exception (Cycle const& cycle, std::string_view const& context_info)
 {
-	QDomElement properties_element;
-	if (element == "properties")
-		properties_element = element;
-	else
-	{
-		for (QDomElement& e: element)
-		{
-			if (e == "properties")
-			{
-				if (properties_element.isNull())
-					properties_element = e;
-				else
-					throw BadConfiguration ("multiple <properties> elements");
-			}
-		}
+	try {
+		_module.rescue (cycle, std::current_exception());
+
+		// Set all output properties to nil.
+		if (_module._set_nil_on_exception)
+			for (auto* property: _module._io->_registered_output_properties)
+				*property = xf::nil;
 	}
-
-	if (properties_element.isNull())
+	catch (...)
 	{
-		// If at least one of provided properties is required,
-		// throw an error.
-		if (std::any_of (list.begin(), list.end(), [](ConfigReader::PropertiesParser::NameAndProperty const& s) { return s.required; }))
-			throw BadConfiguration ("missing <properties> element");
+		cycle.logger() << "Exception (" << context_info << ") '" << xf::describe_exception (std::current_exception()) << "' during handling exception from module " << identifier (_module) << "\n";
 	}
-
-	_properties_parser = std::make_unique<ConfigReader::PropertiesParser> (list);
-	_properties_parser->parse (properties_element);
 }
 
 
-bool
-Module::has_setting (QString const& name)
+BasicModule::BasicModule (std::unique_ptr<ModuleIO> io, std::string_view const& instance):
+	NamedInstance (instance),
+	_io (std::move (io))
 {
-	return _settings_parser->has_setting (name);
-}
-
-
-Time
-Module::update_time() const
-{
-	return _module_manager->update_time();
-}
-
-
-Time
-Module::update_dt() const
-{
-	return _module_manager->update_dt();
-}
-
-
-QWidget*
-Module::configurator_widget() const
-{
-	return nullptr;
-}
-
-
-NavaidStorage*
-Module::navaid_storage() const
-{
-	return _module_manager->application()->navaid_storage();
-}
-
-
-WorkPerformer*
-Module::work_performer() const
-{
-	return _module_manager->application()->work_performer();
-}
-
-
-Accounting*
-Module::accounting() const
-{
-	return _module_manager->application()->accounting();
-}
-
-
-xf::Logger const&
-Module::log() const
-{
-	return _logger;
+	auto api = ModuleIO::ProcessingLoopAPI (*_io.get());
+	api.set_module (*this);
+	api.verify_settings();
 }
 
 
 void
-Module::register_factory (std::string const& name, FactoryFunction factory_function)
+BasicModule::initialize()
+{ }
+
+
+void
+BasicModule::communicate (xf::Cycle const&)
 {
-	factories()[name] = factory_function;
+	_did_not_communicate = true;
 }
 
 
-Module::FactoryFunction
-Module::find_factory (std::string const& name)
+void
+BasicModule::process (xf::Cycle const&)
 {
-	FactoriesMap::iterator f = factories().find (name);
-	if (f == factories().end())
-		return FactoryFunction();
-	return f->second;
+	_did_not_process = true;
 }
 
 
-inline Module::FactoriesMap&
-Module::factories()
+void
+BasicModule::rescue (Cycle const& cycle, std::exception_ptr eptr)
 {
-	static FactoriesMap factories;
-	return factories;
+	cycle.logger() << "Unhandled exception '" << xf::describe_exception (eptr) << "' during processing of module " << identifier (*this) << "\n";
 }
 
 
-std::ostream&
-operator<< (std::ostream& s, Module::Pointer const& module_ptr)
+std::string
+identifier (BasicModule const& module)
 {
-	s << module_ptr.name() << "#" << module_ptr.instance();
-	return s;
+	auto s = demangle (typeid (module));
+	return s.substr (0, s.find ("<")) + "#" + module.instance();
 }
 
-} // namespace Xefis
+
+std::string
+identifier (BasicModule const* module)
+{
+	return module ? identifier (*module) : "(nullptr)";
+}
+
+} // namespace xf
 

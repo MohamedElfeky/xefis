@@ -16,316 +16,402 @@
 
 // Standard:
 #include <cstddef>
-#include <functional>
-#include <ostream>
+#include <vector>
+#include <exception>
+#include <optional>
+#include <memory>
+#include <type_traits>
 
-// Qt:
-#include <QtXml/QDomElement>
+// Lib:
+#include <boost/circular_buffer.hpp>
 
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/core/application.h>
-#include <xefis/core/navaid_storage.h>
-#include <xefis/core/config_reader.h>
+#include <xefis/core/cycle.h>
+#include <xefis/core/module_io.h>
 #include <xefis/utility/noncopyable.h>
-#include <xefis/utility/logger.h>
+#include <xefis/utility/named_instance.h>
 
 
-#define XEFIS_REGISTER_MODULE_CLASS(module_name, klass) \
-	static xf::Module::Registrator module_registrator (module_name, [](xf::ModuleManager* module_manager, QDomElement const& config) -> xf::Module* { \
-		return new klass (module_manager, config); \
-	});
+class QWidget;
+
+namespace xf {
+
+class BasicSetting;
 
 
-namespace Xefis {
+/**
+ * Type-tag used to indicate that Module<> doesn't have any ModuleIO class.
+ */
+class NoModuleIO: public ModuleIO
+{ };
 
-class ModuleManager;
 
-class Module: private Noncopyable
+/**
+ * A "function" that takes input data in form of input properties, and computes result
+ * in form of output properties. Implemented as a class since some modules will have to
+ * store some sort of state.
+ *
+ * Public method that computes the result is fetch_and_process(). It calls implementation-defined
+ * process().
+ */
+class BasicModule:
+	public NamedInstance,
+	private Noncopyable
 {
+	static constexpr std::size_t kMaxProcessingTimesBackLog = 1000;
+
   public:
-	typedef std::function<Module* (ModuleManager*, QDomElement const&)>	FactoryFunction;
-	typedef std::map<std::string, FactoryFunction>						FactoriesMap;
-
-	class Registrator
-	{
-	  public:
-		Registrator (std::string const& module_name, FactoryFunction);
-	};
-
-	class Pointer
+	/**
+	 * A set of methods for the processing loop to use on the module.
+	 */
+	class ProcessingLoopAPI
 	{
 	  public:
 		// Ctor
-		Pointer() = default;
-
-		// Ctor
-		Pointer (std::string const& name, std::string const& instance);
+		explicit
+		ProcessingLoopAPI (BasicModule&);
 
 		/**
-		 * Comparison operator: first by name, then by instance.
+		 * True if module implements its own communicate() method.
+		 * Result is valid after the execution of first cycle, otherwise true is returned.
 		 */
+		[[nodiscard]]
 		bool
-		operator< (Pointer const& other) const;
+		implements_communicate_method() const noexcept;
 
 		/**
-		 * Return module name (class).
+		 * True if module implements its own process() method.
+		 * Result is valid after the execution of first cycle, otherwise true is returned.
 		 */
-		std::string const&
-		name() const noexcept;
+		[[nodiscard]]
+		bool
+		implements_process_method() const noexcept;
 
 		/**
-		 * Return module instance.
+		 * Request all modules to communicate with external systems (hardware systems)
+		 * and store a snapshot of parameters that will be used in the process() method.
 		 */
-		std::string const&
-		instance() const noexcept;
+		void
+		communicate (Cycle const&);
+
+		/**
+		 * Request all connected input properties to be computed, and then
+		 * call the process() method. It will compute results only once, until
+		 * reset_cache() is called.
+		 */
+		void
+		fetch_and_process (Cycle const&);
+
+		/**
+		 * Delete cached result of fetch_and_process().
+		 */
+		void
+		reset_cache();
 
 	  private:
-		std::string	_name;
-		std::string	_instance;
+		/**
+		 * Print current exception information.
+		 */
+		void
+		handle_exception (Cycle const&, std::string_view const& context_info);
+
+	  private:
+		BasicModule& _module;
+	};
+
+	/**
+	 * Accesses accounting data (time spent on processing, etc.
+	 */
+	class AccountingAPI
+	{
+	  public:
+		// Ctor
+		explicit
+		AccountingAPI (BasicModule&);
+
+		/**
+		 * Cycle time of the ProcessingLoop that this module is being processed in.
+		 */
+		[[nodiscard]]
+		si::Time
+		cycle_time() const noexcept;
+
+		/**
+		 * Set cycle time of he ProcessingLoop that this module is being processed in.
+		 */
+		void
+		set_cycle_time (si::Time);
+
+		/**
+		 * Add new measured communication time (time spent in the communicate() method).
+		 */
+		void
+		add_communication_time (si::Time);
+
+		/**
+		 * Add new measured processing time (time spent in the process() method).
+		 */
+		void
+		add_processing_time (si::Time);
+
+		/**
+		 * Communication times buffer.
+		 */
+		[[nodiscard]]
+		boost::circular_buffer<si::Time> const&
+		communication_times() const noexcept;
+
+		/**
+		 * Processing times buffer.
+		 */
+		[[nodiscard]]
+		boost::circular_buffer<si::Time> const&
+		processing_times() const noexcept;
+
+	  private:
+		BasicModule& _module;
+	};
+
+	/**
+	 * Defines method for accessing configuration widget if a module decides to implement one.
+	 * This class should be inherited by the same class that inherits the BasicModule class.
+	 */
+	class HasConfiguratorWidget
+	{
+	  public:
+		// Dtor
+		virtual
+		~HasConfiguratorWidget() = default;
+
+		virtual QWidget*
+		configurator_widget() = 0;
 	};
 
   public:
 	/**
-	 * Create a module.
-	 * \param	config
-	 * 			DOM configuration element for the module.
+	 * Ctor
+	 *
+	 * \param	module_io
+	 *			Object that storess all Settings, PropertyIns and PropertyOuts.
+	 * \param	instance
+	 *			Instance name for GUI identification and debugging purposes.
 	 */
-	Module (ModuleManager*, QDomElement const& config);
+	explicit
+	BasicModule (std::unique_ptr<ModuleIO>, std::string_view const& instance = {});
 
 	// Dtor
-	virtual ~Module();
+	virtual
+	~BasicModule() = default;
 
 	/**
-	 * Signal that the data in property tree has been updated.
+	 * Return the IO object of this module.
+	 */
+	ModuleIO*
+	io_base() const noexcept;
+
+	/**
+	 * Initialize before starting the loop.
 	 * Default implementation does nothing.
 	 */
 	virtual void
-	data_updated();
-
-	/**
-	 * Called when exception is caught from data_updated() method.
-	 * Default implementation does nothing.
-	 */
-	virtual void
-	rescue();
-
-	/**
-	 * Return last update time.
-	 */
-	Time
-	update_time() const;
-
-	/**
-	 * Return time difference between last and previous update.
-	 * Be sure not to use it if you're skipping some of the updates,
-	 * because you're watching just one property or something.
-	 */
-	Time
-	update_dt() const;
-
-	/**
-	 * Return module name.
-	 */
-	std::string const&
-	name() const noexcept;
-
-	/**
-	 * Return module instance.
-	 */
-	std::string const&
-	instance() const noexcept;
-
-	/**
-	 * Get Pointer object for this module.
-	 */
-	Module::Pointer
-	get_pointer() const;
-
-	/**
-	 * Return configurator widget.
-	 * If module doesn't have one, return nullptr.
-	 * Default implementation returns nullptr.
-	 */
-	virtual QWidget*
-	configurator_widget() const;
-
-	/**
-	 * Register module factory.
-	 */
-	static void
-	register_factory (std::string const& module_name, FactoryFunction);
-
-	/**
-	 * Return factory function by name.
-	 */
-	static FactoryFunction
-	find_factory (std::string const& name);
-
-	/**
-	 * Dumps module info to the log.
-	 */
-	void
-	dump_debug_log();
-
-	/**
-	 * Return ModuleManager owning this module.
-	 */
-	ModuleManager*
-	module_manager() const noexcept;
+	initialize();
 
   protected:
 	/**
-	 * Parse the <settings> element and initialize variables.
-	 * \param	element can be <settings> or parent of <settings> element.
-	 * \throw	xf::Exception if something's wrong.
+	 * Communicate with sensors/actuators to send/receive processing data and results.
+	 * This method should be as fast as possible, actual data processing must happen
+	 * in process().
+	 */
+	virtual void
+	communicate (Cycle const& cycle);
+
+	/**
+	 * Compute output properties.
+	 * Default implementation does nothing.
+	 */
+	virtual void
+	process (Cycle const& cycle);
+
+	/**
+	 * Called when exception is caught from the process() method.
+	 * Default implementation logs the exception and sets all output properties to nil.
+	 */
+	virtual void
+	rescue (Cycle const&, std::exception_ptr);
+
+	/**
+	 * Enable/disable option to set all output properties to xf::nil when
+	 * exception occurs within the process(Cycle) method.
+	 * This happens after calling the rescue() method.
+	 *
+	 * By default it's enabled.
 	 */
 	void
-	parse_settings (QDomElement const& element, ConfigReader::SettingsParser::SettingsList);
-
-	/**
-	 * Parse the <properties> element and initialize properties
-	 * by their names matching the <properties> children.
-	 * \param	element can be <properties> or parent of <properties> element.
-	 * \throw	xf::Exception if something's wrong.
-	 */
-	void
-	parse_properties (QDomElement const& element, ConfigReader::PropertiesParser::PropertiesList);
-
-	/**
-	 * Return true if given setting has been found in configuration.
-	 */
-	bool
-	has_setting (QString const& name);
-
-	/**
-	 * Access NavaidStorage.
-	 */
-	NavaidStorage*
-	navaid_storage() const;
-
-	/**
-	 * Access work performer.
-	 */
-	WorkPerformer*
-	work_performer() const;
-
-	/**
-	 * Access accounting information for all modules.
-	 */
-	Accounting*
-	accounting() const;
-
-	/**
-	 * Add header with module name to the log stream and
-	 * return the stream.
-	 */
-	xf::Logger const&
-	log() const;
+	set_nil_on_exception (bool enable) noexcept;
 
   private:
-	/**
-	 * Return list of factories.
-	 */
-	static FactoriesMap&
-	factories();
-
-  private:
-	ModuleManager*							_module_manager			= nullptr;
-	Unique<ConfigReader::SettingsParser>	_settings_parser;
-	Unique<ConfigReader::PropertiesParser>	_properties_parser;
-	std::string								_name;
-	std::string								_instance;
-	xf::Logger								_logger;
+	bool								_did_not_communicate	{ false };
+	bool								_did_not_process		{ false };
+	bool								_cached					{ false };
+	bool								_set_nil_on_exception	{ true };
+	std::unique_ptr<ModuleIO>			_io;
+	boost::circular_buffer<si::Time>	_communication_times	{ kMaxProcessingTimesBackLog };
+	boost::circular_buffer<si::Time>	_processing_times		{ kMaxProcessingTimesBackLog };
+	si::Time							_cycle_time				{ 0_s };
 };
 
 
-inline
-Module::Registrator::Registrator (std::string const& module_name, FactoryFunction ff)
-{
-	Module::register_factory (module_name, ff);
-}
+template<class IO = NoModuleIO>
+	class Module: public BasicModule
+	{
+	  public:
+		/**
+		 * Ctor
+		 * Version for modules that do have their own IO class.
+		 */
+		template<class = std::enable_if_t<!std::is_same_v<IO, NoModuleIO>>>
+			explicit
+			Module (std::unique_ptr<IO> io, std::string_view const& instance = {});
+
+		/**
+		 * Ctor
+		 * Version for modules that do not have any IO class.
+		 */
+		template<class = std::enable_if_t<std::is_same_v<IO, NoModuleIO>>>
+			explicit
+			Module (std::string_view const& instance = {});
+
+	  protected:
+		IO& io;
+	};
 
 
 inline
-Module::Pointer::Pointer (std::string const& name, std::string const& instance):
-	_name (name),
-	_instance (instance)
+BasicModule::ProcessingLoopAPI::ProcessingLoopAPI (BasicModule& module):
+	_module (module)
 { }
 
 
 inline bool
-Module::Pointer::operator< (Pointer const& other) const
+BasicModule::ProcessingLoopAPI::implements_communicate_method() const noexcept
 {
-	if (_name != other._name)
-		return _name < other._name;
-	if (_instance != other._instance)
-		return _instance < other._instance;
-	return false;
+	return !_module._did_not_communicate;
 }
 
 
-inline std::string const&
-Module::Pointer::name() const noexcept
+inline bool
+BasicModule::ProcessingLoopAPI::implements_process_method() const noexcept
 {
-	return _name;
+	return !_module._did_not_process;
 }
 
 
-inline std::string const&
-Module::Pointer::instance() const noexcept
+inline void
+BasicModule::ProcessingLoopAPI::reset_cache()
 {
-	return _instance;
+	_module._cached = false;
 }
 
 
 inline
-Module::~Module()
+BasicModule::AccountingAPI::AccountingAPI (BasicModule& module):
+	_module (module)
 { }
+
+
+inline si::Time
+BasicModule::AccountingAPI::cycle_time() const noexcept
+{
+	return _module._cycle_time;
+}
 
 
 inline void
-Module::data_updated()
-{ }
+BasicModule::AccountingAPI::set_cycle_time (si::Time cycle_time)
+{
+	_module._cycle_time = cycle_time;
+}
 
 
 inline void
-Module::rescue()
-{ }
-
-
-inline std::string const&
-Module::name() const noexcept
+BasicModule::AccountingAPI::add_communication_time (si::Time t)
 {
-	return _name;
+	_module._communication_times.push_back (t);
 }
 
 
-inline std::string const&
-Module::instance() const noexcept
+inline void
+BasicModule::AccountingAPI::add_processing_time (si::Time t)
 {
-	return _instance;
+	_module._processing_times.push_back (t);
 }
 
 
-inline Module::Pointer
-Module::get_pointer() const
+inline boost::circular_buffer<si::Time> const&
+BasicModule::AccountingAPI::communication_times() const noexcept
 {
-	return { name(), instance() };
+	return _module._communication_times;
 }
 
 
-inline ModuleManager*
-Module::module_manager() const noexcept
+inline boost::circular_buffer<si::Time> const&
+BasicModule::AccountingAPI::processing_times() const noexcept
 {
-	return _module_manager;
+	return _module._processing_times;
 }
 
 
-std::ostream&
-operator<< (std::ostream&, Module::Pointer const&);
+inline ModuleIO*
+BasicModule::io_base() const noexcept
+{
+	return _io.get();
+}
 
-} // namespace Xefis
+
+inline void
+BasicModule::set_nil_on_exception (bool enable) noexcept
+{
+	_set_nil_on_exception = enable;
+}
+
+
+template<class IO>
+	template<class>
+		inline
+		Module<IO>::Module (std::unique_ptr<IO> module_io, std::string_view const& instance):
+			BasicModule (std::move (module_io), instance),
+			io (static_cast<IO&> (*io_base()))
+		{ }
+
+
+template<class IO>
+	template<class>
+		inline
+		Module<IO>::Module (std::string_view const& instance):
+			BasicModule (std::make_unique<IO>(), instance),
+			io (static_cast<IO&> (*io_base()))
+		{ }
+
+
+/*
+ * Global functions
+ */
+
+
+/**
+ * Return string identifying module and its instance.
+ */
+std::string
+identifier (BasicModule const&);
+
+/**
+ * Same as identifier (BasicModule&).
+ */
+std::string
+identifier (BasicModule const*);
+
+} // namespace xf
 
 #endif
 

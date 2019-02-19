@@ -16,6 +16,8 @@
 
 // Standard:
 #include <cstddef>
+#include <string>
+#include <string_view>
 
 // Qt:
 #include <QtCore/QString>
@@ -26,7 +28,7 @@
 #include <xefis/utility/hextable.h>
 
 
-namespace Xefis {
+namespace xf {
 
 /**
  * Parse binary string of the form: 00:11:22:aa:ff to a vector
@@ -83,33 +85,19 @@ parse_hex_string (QString const& string)
 }
 
 
-inline Blob
-make_blob (void const* pointer, std::size_t bytes)
-{
-	uint8_t const* begin = reinterpret_cast<uint8_t const*> (pointer);
-	uint8_t const* end = begin + bytes;
-
-	return Blob (begin, end);
-}
-
-
 inline std::string
-to_hex_string (std::string const& blob)
+to_hex_string (std::string_view const& blob)
 {
 	if (blob.empty())
 		return "";
+
 	std::string s;
+
 	for (auto v: blob)
 		s += QString ("%1").arg (static_cast<uint8_t> (v), 2, 16, QChar ('0')).toStdString() + ":";
+
 	s.pop_back();
 	return s;
-}
-
-
-inline std::string
-to_hex_string (Blob const& blob)
-{
-	return to_hex_string (std::string (blob.begin(), blob.end()));
 }
 
 
@@ -221,7 +209,7 @@ parse_alignment (QString string)
 	return alignment;
 }
 
-} // namespace Xefis
+} // namespace xf
 
 #endif
 

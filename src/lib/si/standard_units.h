@@ -82,7 +82,9 @@ typedef Unit< 1,  0, -2,  0,  0,  0,  0,  0>	MeterPerSecondSquared;
 typedef Unit< 1,  0, -3,  0,  0,  0,  0,  0>	MeterPerSecondCubed;
 typedef Unit< 1,  0, -4,  0,  0,  0,  0,  0>	MeterPerQuarticSecond;
 typedef Unit< 0,  0, -1,  0,  0,  0,  0,  1>	RadianPerSecond;
+typedef Unit< 0,  0, -1,  0,  0,  0,  0,  0>	BaseRadianPerSecond;
 typedef Unit< 0,  0, -2,  0,  0,  0,  0,  1>	RadianPerSecondSquared;
+typedef Unit< 0,  0, -2,  0,  0,  0,  0,  0>	BaseRadianPerSecondSquared;
 typedef Unit< 1,  1, -1,  0,  0,  0,  0,  0>	NewtonSecond;
 //            m  kg   s   A   K mol  cd rad
 //            ↓   ↓   ↓   ↓   ↓   ↓   ↓   ↓
@@ -192,21 +194,6 @@ typedef ScaledUnit<Watt, std::milli>				MilliWatt;
 typedef ScaledUnit<Watt, std::micro>				MicroWatt;
 typedef ScaledUnit<Pascal, std::kilo>				KiloPascal;
 typedef ScaledUnit<Pascal, std::hecto>				HectoPascal;
-
-// Often-used non-standard units:
-typedef ScaledUnit<Meter, std::ratio<1'200, 3'937>>													Foot;
-typedef ScaledUnit<Meter, std::ratio<1'609'344, 1'000>>												Mile;
-typedef ScaledUnit<Meter, std::ratio<1'852, 1>>														NauticalMile;
-typedef ScaledUnit<Kilogram, std::ratio<45'359'237, 100'000'000>>									PoundMass;
-typedef ScaledUnit<MeterPerSecondSquared, std::ratio<980'665, 100'000>>								Gravity;
-typedef ScaledUnit<Kelvin, std::ratio<5, 9>>														Rankine;
-typedef ScaledUnit<Radian, std::ratio_divide<SmallPi, std::ratio<180>>>								Degree;
-typedef ScaledUnit<RadianPerSecond, std::ratio_divide<Pi, std::ratio<30>>>							RotationPerMinute;
-typedef ScaledUnit<Pascal, std::ratio<3'386'389, 1000>>												InchOfMercury;
-typedef ScaledUnit<MeterPerSecond, std::ratio<10, 36>>												KilometerPerHour;
-typedef ScaledUnit<MeterPerSecond, Foot::Scale>														FootPerSecond;
-typedef ScaledUnit<FootPerSecond, std::ratio<1, 60>>												FootPerMinute;
-typedef ScaledUnit<MeterPerSecond, std::ratio_multiply<NauticalMile::Scale, std::ratio<1, 3600>>>	Knot;
 
 // Units with offset:
 typedef ScaledUnit<Kelvin, std::ratio<1>, std::ratio<27'315, 100>>			Celsius;

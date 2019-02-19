@@ -1,0 +1,3 @@
+XEFIS_MACHINES += test_instruments
+XEFIS_MACHINES += simulation
+

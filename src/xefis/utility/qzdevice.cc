@@ -24,12 +24,7 @@
 #include "qzdevice.h"
 
 
-namespace Xefis {
-
-constexpr std::size_t QZDevice::kBufferSize;
-constexpr uint32_t QZDevice::kEnableGzip;
-constexpr uint32_t QZDevice::kWindowBits;
-
+namespace xf {
 
 QZDevice::QZDevice (QFile* gzip_file, QObject* parent):
 	QIODevice (parent),
@@ -53,7 +48,7 @@ QZDevice::atEnd() const
 void
 QZDevice::close()
 {
-	_ctx_resource.destroy();
+	_ctx_responsibility.execute();
 	QIODevice::close();
 }
 
@@ -79,7 +74,7 @@ QZDevice::open (OpenMode mode)
 	_input_buffer.resize (kBufferSize);
 
 	// Ensure the z-state is closed on error, or when this is deleted:
-	_ctx_resource = [&] { ::inflateEnd (&_ctx); };
+	_ctx_responsibility = [&] { ::inflateEnd (&_ctx); };
 
 	return true;
 }
@@ -165,7 +160,8 @@ QZDevice::decompress()
 
 		case Z_STREAM_END:
 			_z_at_eof = true;
-			// fall-through:
+			[[fallthrough]];
+
 		case Z_OK:
 			if (_ctx.avail_out != 0 || _ctx.avail_in == 0)
 				_need_pull = true;
@@ -176,5 +172,5 @@ QZDevice::decompress()
 	}
 }
 
-} // namespace Xefis
+} // namespace xf
 

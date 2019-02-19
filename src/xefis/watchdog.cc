@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 #include <vector>
 
 // System:
@@ -26,9 +27,6 @@
 #include <locale.h>
 #include <string.h>
 #include <errno.h>
-
-// Boost:
-#include <boost/lexical_cast.hpp>
 
 // Xefis:
 #include <xefis/config/all.h>
@@ -50,23 +48,44 @@ ping_loop (int write_fd, int read_fd, pid_t xefis_pid)
 	::srand (::time (nullptr));
 
 	// First delay is slightly longer:
-	usleep ((1_s).quantity<Microsecond>());
+	usleep ((1_s).in<Microsecond>());
 
 	while (true)
 	{
 		// Send ping, receive pong.
 
 		uint8_t c = ::rand() % 0x100;
-		write (write_fd, &c, 1);
-		fsync (write_fd);
+		int n = 0;
+
+		while ((n = ::write (write_fd, &c, 1)) == -1)
+		{
+			if (errno == EINTR)
+				continue;
+			else if (errno == EPIPE)
+				break;
+			else
+				std::cerr << "Error when writing ping to pipe: " << strerror (errno) << std::endl;
+		}
+
+		::fsync (write_fd);
 
 		// Give xefis some time:
-		usleep ((100_ms).quantity<Microsecond>());
+		usleep ((100_ms).in<Microsecond>());
 
 		// if Xefis exits normally, wait(), cleanup and return Exited
 		// otherwise return Timeout
 		uint8_t r = 0;
-		size_t n = read (read_fd, &r, 1);
+
+		while ((n = ::read (read_fd, &r, 1)) == -1)
+		{
+			if (errno == EINTR)
+				continue;
+			else if (errno == EPIPE)
+				break;
+			else
+				std::cerr << "Error when reading pong from pipe: " << strerror (errno) << std::endl;
+		}
+
 		if (n == 0 || (r ^ 0x55) != c)
 		{
 			int status = 0;
@@ -142,8 +161,8 @@ watchdog (int argc, char** argv, char**)
 				std::vector<const char*> cmdline = args; // ./watchdog[0] xefis[1] --other[2] ...[...]...
 				// No need to care about allocated memory, since we'll be replaced soon by another program.
 				cmdline.erase (cmdline.begin());
-				cmdline.push_back (::strdup (("--watchdog-write-fd=" + boost::lexical_cast<std::string> (w_fd_for_xefis)).c_str()));
-				cmdline.push_back (::strdup (("--watchdog-read-fd=" + boost::lexical_cast<std::string> (r_fd_for_xefis)).c_str()));
+				cmdline.push_back (::strdup (("--watchdog-write-fd=" + std::to_string (w_fd_for_xefis)).c_str()));
+				cmdline.push_back (::strdup (("--watchdog-read-fd=" + std::to_string (r_fd_for_xefis)).c_str()));
 				cmdline.push_back (nullptr); // Sentinel for execv.
 
 				std::cerr << "Watchdog: Executing: ";
@@ -174,7 +193,7 @@ watchdog (int argc, char** argv, char**)
 		}
 
 		// Wait a bit and try again:
-		usleep ((10_ms).quantity<Microsecond>());
+		usleep ((10_ms).in<Microsecond>());
 
 		::close (w_fd_for_watchdog);
 		::close (r_fd_for_watchdog);

@@ -28,8 +28,7 @@
 #include <xefis/utility/noncopyable.h>
 
 
-namespace Xefis {
-namespace I2C {
+namespace xf::i2c {
 
 class Bus;
 class Address;
@@ -62,6 +61,9 @@ class Bus: public Noncopyable
 	 */
 	explicit
 	Bus (ID bus_number) noexcept;
+
+	// Move ctor
+	Bus (Bus&&);
 
 	// Dtor
 	~Bus();
@@ -161,12 +163,14 @@ class Message
 	 * Data is represented by range [data, data + size). Message does not
 	 * make a copy of the data.
 	 */
+	explicit
 	Message (Operation, Address const&, uint8_t* data, std::size_t size);
 
 	/**
 	 * Create I2C Message.
 	 * Data is read from given vector.
 	 */
+	explicit
 	Message (Operation, Address const&, std::vector<uint8_t>& vector);
 
 	/**
@@ -174,6 +178,7 @@ class Message
 	 * Data is read from given array.
 	 */
 	template<std::size_t SequenceSize>
+		explicit
 		Message (Operation, Address const&, std::array<uint8_t, SequenceSize>& array);
 
 	/**
@@ -200,6 +205,7 @@ class Device
 	Device() = default;
 
 	// Ctor
+	explicit
 	Device (Bus::ID bus_id, Address const&);
 
 	/**
@@ -462,8 +468,7 @@ template<std::size_t Size>
 		_bus.execute ({ Message (Write, _address, data_to_write) });
 	}
 
-} // namespace I2C
-} // namespace Xefis
+} // namespace xf::i2c
 
 #endif
 

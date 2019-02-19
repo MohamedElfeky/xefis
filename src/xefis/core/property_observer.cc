@@ -21,10 +21,10 @@
 #include "property_observer.h"
 
 
-namespace Xefis {
+namespace xf {
 
 void
-PropertyObserver::observe (GenericProperty& property)
+PropertyObserver::observe (BasicProperty const& property)
 {
 	_objects.push_back (Object (&property));
 }
@@ -52,35 +52,37 @@ PropertyObserver::set_callback (Callback callback) noexcept
 
 
 void
-PropertyObserver::set_minimum_dt (Time dt) noexcept
+PropertyObserver::set_minimum_dt (si::Time dt) noexcept
 {
 	_minimum_dt = dt;
 }
 
 
 void
-PropertyObserver::data_updated (Time update_time)
+PropertyObserver::process (si::Time update_time)
 {
-	Time obs_dt = update_time - _obs_update_time;
+	si::Time obs_dt = update_time - _obs_update_time;
 	_accumulated_dt += update_time - _fire_time;
 
 	for (Object& o: _objects)
 	{
-		PropertyNode::Serial new_serial = o.remote_serial();
+		BasicProperty::Serial new_serial = o.remote_serial();
+
 		if (new_serial != o._saved_serial)
 		{
 			_need_callback = true;
-			_last_recompute = !_smoothers.empty();
+			_additional_recompute = !_smoothers.empty();
 			o._saved_serial = new_serial;
 		}
 	}
 
 	// Minimum time (granularity) for updates caused by working smoothers - 1 ms.
 	bool should_recompute = _need_callback || (obs_dt >= 1_ms && obs_dt <= longest_smoothing_time());
-	if (!should_recompute && _last_recompute)
+
+	if (!should_recompute && _additional_recompute)
 	{
 		should_recompute = true;
-		_last_recompute = false;
+		_additional_recompute = false;
 	}
 
 	if (should_recompute || _touch)
@@ -89,6 +91,7 @@ PropertyObserver::data_updated (Time update_time)
 		{
 			if (_need_callback)
 				_obs_update_time = update_time;
+
 			_need_callback = false;
 			_touch = false;
 			_accumulated_dt = 0_ms;
@@ -98,7 +101,7 @@ PropertyObserver::data_updated (Time update_time)
 			_callback();
 		}
 		else
-			_last_recompute = true;
+			_additional_recompute = true;
 	}
 }
 
@@ -107,7 +110,7 @@ void
 PropertyObserver::add_depending_smoother (SmootherBase& smoother)
 {
 	_smoothers.push_back (&smoother);
-	_recompute_longest_smoother = true;
+	_longest_smoothing_time.reset();
 }
 
 
@@ -115,28 +118,29 @@ void
 PropertyObserver::add_depending_smoothers (std::initializer_list<SmootherBase*> list)
 {
 	_smoothers.insert (_smoothers.end(), list.begin(), list.end());
-	_recompute_longest_smoother = true;
+	_longest_smoothing_time.reset();
 }
 
 
-Time
+si::Time
 PropertyObserver::longest_smoothing_time() noexcept
 {
-	if (_recompute_longest_smoother)
+	if (!_longest_smoothing_time)
 	{
-		Time longest = 0_s;
+		si::Time longest = 0_s;
+
 		for (auto const& smoother: _smoothers)
 			longest = std::max (longest, smoother->smoothing_time());
+
 		// Add 1.1 ms of margin, to be sure that the smoother's window
 		// is positioned _after_ the last interesting value change.
 		// This assumes that the smoother's precision is set to 1 ms.
-		_longest_smoother = longest + 1.1_ms;
-		_longest_smoother *= 2.0;
-		_recompute_longest_smoother = false;
+		// TODO assumption!
+		_longest_smoothing_time = longest + 1.1_ms;
 	}
 
-	return _longest_smoother;
+	return *_longest_smoothing_time;
 }
 
-} // namespace Xefis
+} // namespace xf
 

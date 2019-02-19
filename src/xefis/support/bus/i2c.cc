@@ -31,8 +31,7 @@
 #include "i2c.h"
 
 
-namespace Xefis {
-namespace I2C {
+namespace xf::i2c {
 
 Message::Message (Operation operation, Address const& address, uint8_t* data, std::size_t size):
 	_operation (operation),
@@ -73,6 +72,15 @@ Bus::Bus() noexcept
 Bus::Bus (uint8_t bus_number) noexcept
 {
 	open (bus_number);
+}
+
+
+Bus::Bus (Bus&& other):
+	_open (other._open),
+	_bus_number (other._bus_number),
+	_device (other._device)
+{
+	other._open = false;
 }
 
 
@@ -191,6 +199,5 @@ Device::ensure_open()
 		_bus.open();
 }
 
-} // namespace I2C
-} // namespace Xefis
+} // namespace xf::i2c
 

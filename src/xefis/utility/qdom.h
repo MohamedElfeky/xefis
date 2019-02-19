@@ -24,96 +24,7 @@
 
 // Qt:
 #include <QtXml/QDomElement>
-
-
-namespace Xefis {
-
-/**
- * Sequence iterator for use with for(:) loops.
- */
-class QDomElementIterator
-{
-  public:
-	/**
-	 * Create past-the-end iterator.
-	 */
-	QDomElementIterator() = default;
-
-	QDomElementIterator (QDomElement element);
-
-	bool
-	operator== (QDomElementIterator const& other) const;
-
-	bool
-	operator!= (QDomElementIterator const& other) const;
-
-	void
-	operator++();
-
-	QDomElement&
-	operator*();
-
-  private:
-	QDomElement _element;
-};
-
-
-inline
-QDomElementIterator::QDomElementIterator (QDomElement element):
-	_element (element)
-{ }
-
-
-inline bool
-QDomElementIterator::operator== (QDomElementIterator const& other) const
-{
-	return _element == other._element;
-}
-
-
-inline bool
-QDomElementIterator::operator!= (QDomElementIterator const& other) const
-{
-	return _element != other._element;
-}
-
-
-inline void
-QDomElementIterator::operator++()
-{
-	_element = _element.nextSiblingElement();
-}
-
-
-inline QDomElement&
-QDomElementIterator::operator*()
-{
-	return _element;
-}
-
-} // namespace Xefis
-
-
-/**
- * Support for generic iterating over element's children
- * with range-for.
- */
-inline xf::QDomElementIterator
-begin (QDomElement element)
-{
-	return xf::QDomElementIterator (element.firstChildElement());
-}
-
-
-/**
- * Support for generic iterating over element's children
- * with range-for.
- */
-inline xf::QDomElementIterator
-end (QDomElement)
-{
-	return xf::QDomElementIterator();
-}
+#include <QtCore/QFile>
 
 
 /**
@@ -181,7 +92,7 @@ operator!= (QDomElement const& element, QString const& string) noexcept
  */
 
 
-namespace Xefis {
+namespace xf {
 
 /**
  * Throw BadDomAttribute if there are attributes in the element
@@ -223,7 +134,40 @@ require_and_only_allow_attributes (QDomElement const& e, std::set<QString> const
 	require_attributes (e, attributes);
 }
 
-} // namespace Xefis
+
+/**
+ * Parse XML document and return QDomDocument.
+ */
+inline QDomDocument
+load_xml_doc (QFile&& xml_file)
+{
+	QDomDocument doc;
+	std::string path = xml_file.fileName().toStdString();
+
+	if (!xml_file.exists())
+		throw BadConfiguration ("file not found: " + path);
+
+	if (!xml_file.open (QFile::ReadOnly))
+		throw BadConfiguration ("file access error: " + path);
+
+	if (!doc.setContent (&xml_file, true))
+		throw BadConfiguration ("config parse error: " + path);
+
+	return doc;
+}
+
+
+/**
+ * Just like load_xml_doc, except it returns the document element of the doc,
+ * not QDomDocument.
+ */
+inline QDomElement
+load_xml (QFile&& xml_file)
+{
+	return load_xml_doc (std::forward<QFile> (xml_file)).documentElement();
+}
+
+} // namespace xf
 
 #endif
 

@@ -11,8 +11,8 @@
  * Visit http://www.gnu.org/licenses/gpl-3.0.html for more information on licensing.
  */
 
-#ifndef XEFIS__APPLICATION__LICENSES_H__INCLUDED
-#define XEFIS__APPLICATION__LICENSES_H__INCLUDED
+#ifndef XEFIS__CORE__LICENSES_H__INCLUDED
+#define XEFIS__CORE__LICENSES_H__INCLUDED
 
 // Standard:
 #include <cstddef>
@@ -21,16 +21,14 @@
 #include <xefis/config/all.h>
 
 
-namespace Xefis {
-namespace License {
+namespace xf::licenses {
 
 extern const char* main;
 extern const char* font_crystal;
 extern const char* lib_half;
 extern const char* lib_kdtreeplusplus;
 
-} // namespace License
-} // namespace Xefis
+} // namespace xf::licenses
 
 #endif
 

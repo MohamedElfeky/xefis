@@ -21,7 +21,7 @@
 #include <xefis/config/all.h>
 
 
-namespace Xefis {
+namespace xf {
 
 /**
  * Executes a formula function iteratively, until result converges to a value,
@@ -36,6 +36,7 @@ template<class tValueType>
 
 	  public:
 		// Ctor
+		explicit
 		Convergence (ValueType delta, unsigned int max_iterations, FormulaFunction formula) noexcept;
 
 		/**
@@ -121,7 +122,7 @@ template<class V>
  * Simpler API for convergence.
  */
 template<class ValueType>
-	inline Optional<ValueType>
+	inline std::optional<ValueType>
 	converge (ValueType initial_value, ValueType delta, unsigned int max_iterations, std::function<ValueType (ValueType)> formula) noexcept
 	{
 		Convergence<ValueType> comp (delta, max_iterations, formula);
@@ -130,7 +131,7 @@ template<class ValueType>
 		return { };
 	}
 
-} // namespace Xefis
+} // namespace xf
 
 #endif
 

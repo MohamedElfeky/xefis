@@ -17,36 +17,37 @@
 // Standard:
 #include <cstddef>
 
-// Xefis:
-#include <xefis/config/exception.h>
+// Local:
+#include "si_config.h"
 
 
 namespace si {
 
 class DynamicUnit;
 
+using Exception = si_config::Exception;
 
-class UnparsableValue: public Xefis::Exception
+
+class UnparsableValue: public Exception
 {
   public:
-	UnparsableValue (std::string const& message):
-		Exception (message)
-	{ }
+	explicit
+	UnparsableValue (std::string const& message);
 };
 
 
-class UnsupportedUnit: public Xefis::Exception
+class UnsupportedUnit: public Exception
 {
   public:
-	UnsupportedUnit (std::string const& message):
-		Exception (message)
-	{ }
+	explicit
+	UnsupportedUnit (std::string const& message);
 };
 
 
-class IncompatibleTypes: public Xefis::Exception
+class IncompatibleTypes: public Exception
 {
   public:
+	explicit
 	IncompatibleTypes (DynamicUnit const& got, DynamicUnit const& expected);
 };
 

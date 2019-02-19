@@ -21,7 +21,7 @@
 #include <xefis/config/all.h>
 
 
-namespace Xefis {
+namespace xf {
 
 template<class tValueType>
 	class Range
@@ -97,8 +97,8 @@ template<class tValueType>
 		extended (Range other) const;
 
 	  private:
-		ValueType	_min	= ValueType();
-		ValueType	_max	= ValueType();
+		ValueType	_min {};
+		ValueType	_max {};
 	};
 
 
@@ -201,7 +201,7 @@ template<class T>
 		return { std::min (min(), other.min()), std::max (max(), other.max()) };
 	}
 
-} // namespace Xefis
+} // namespace xf
 
 #endif
 

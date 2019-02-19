@@ -22,17 +22,17 @@
 
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/core/application.h>
+#include <xefis/core/xefis.h>
 
 // Local:
 #include "system.h"
 
 
-namespace Xefis {
+namespace xf {
 
-System::System()
+System::System (Logger const& logger):
+	_logger (logger.with_scope ("<system>"))
 {
-	_logger.set_prefix ("<system>");
 	_logger << "Creating System object" << std::endl;
 }
 
@@ -46,7 +46,7 @@ System::~System()
 bool
 System::set_clock (Time const& unix_time)
 {
-	::timeval tv = { static_cast<time_t> (unix_time.quantity<Second>()), 0 };
+	::timeval tv = { static_cast<time_t> (unix_time.in<Second>()), 0 };
 	if (::settimeofday (&tv, nullptr) < 0)
 	{
 		_logger << "Could not setup system time: settimeofday() failed with error '" << strerror (errno) << "'; "
@@ -57,5 +57,5 @@ System::set_clock (Time const& unix_time)
 		return true;
 }
 
-} // namespace Xefis
+} // namespace xf
 

@@ -18,16 +18,18 @@
 #include <cstddef>
 #include <functional>
 #include <iostream>
+#include <sstream>
 
 // Xefis:
 #include <xefis/config/all.h>
+#include <xefis/core/logger.h>
 
 // Local:
 #include "test_asserts.h"
 #include "stdexcept.h"
 
 
-namespace Xefis {
+namespace xf {
 
 class RuntimeTest
 {
@@ -41,23 +43,30 @@ class RuntimeTest
 inline
 RuntimeTest::RuntimeTest (std::string const& test_name, TestFunction tf)
 {
+	static constexpr char kResetColor[]			= "\033[31;1;0m";
+	static constexpr char kPassColor[]			= "\033[38;2;100;255;100m";
+	static constexpr char kFailColor[]			= "\033[38;2;255;0;0m";
+	static constexpr char kExplanationColor[]	= "\033[38;2;225;210;150m";
+
 	std::cout << "Test: " << test_name << "…" << std::flush;
-	try {
+	std::ostringstream log_buffer;
+	LoggerOutput logger_output (log_buffer);
+	logger_output.set_timestamps_enabled (false);
+	Logger logger (logger_output);
+
+	bool was_exception = Exception::catch_and_log (logger, [&]{
 		tf();
-		std::cout << " PASS" << std::endl;
-	}
-	catch (Exception& e)
+		std::cout << " " << kPassColor << "PASS" << kResetColor << std::endl;
+	});
+
+	if (was_exception)
 	{
-		std::cout << " FAIL" << std::endl;
-		std::cout << "Explanation: " << e.message() << std::endl;
-	}
-	catch (...)
-	{
-		std::cout << " FAIL with unknown exception" << std::endl;
+		std::cout << " " << kFailColor << "FAIL" << kResetColor << std::endl;
+		std::cout << kExplanationColor << "Explanation: " << log_buffer.str() << kResetColor;
 	}
 }
 
-} // namespace Xefis
+} // namespace xf
 
 #endif
 

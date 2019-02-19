@@ -24,7 +24,7 @@
 #include <xefis/config/all.h>
 
 
-namespace Xefis {
+namespace xf {
 
 class TimeHelper
 {
@@ -35,12 +35,13 @@ class TimeHelper
 	static Time
 	epoch() noexcept;
 
-	static Time
-	measure (std::function<void()> callback) noexcept;
+	template<class Callable>
+		static si::Time
+		measure (Callable&& callback);
 };
 
 
-inline Time
+inline si::Time
 TimeHelper::now() noexcept
 {
 	struct timeval tv;
@@ -49,22 +50,23 @@ TimeHelper::now() noexcept
 }
 
 
-inline Time
+inline si::Time
 TimeHelper::epoch() noexcept
 {
 	return 0_s;
 }
 
 
-inline Time
-TimeHelper::measure (std::function<void()> callback) noexcept
-{
-	Time t = now();
-	callback();
-	return now() - t;
-}
+template<class Callable>
+	inline si::Time
+	TimeHelper::measure (Callable&& callback)
+	{
+		Time t = now();
+		callback();
+		return now() - t;
+	}
 
-} // namespace Xefis
+} // namespace xf
 
 #endif
 

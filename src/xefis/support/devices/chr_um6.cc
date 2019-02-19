@@ -21,17 +21,13 @@
 
 // Xefis:
 #include <xefis/config/all.h>
-#include <xefis/utility/mutex.h>
 #include <xefis/utility/time_helper.h>
 
 // Local:
 #include "chr_um6.h"
 
 
-namespace Xefis {
-
-static xf::Mutex $bits_for_baud_rate_entry_mutex;
-
+namespace xf {
 
 std::string
 CHRUM6::Request::protocol_error_description() const
@@ -92,29 +88,32 @@ CHRUM6::Read::value_lower16() const noexcept
 }
 
 
-CHRUM6::CHRUM6 (SerialPort* serial_port):
+CHRUM6::CHRUM6 (SerialPort* serial_port, Logger const& logger):
 	_serial_port (serial_port)
 {
 	_serial_port->set_data_ready_callback (std::bind (&CHRUM6::serial_ready, this));
 	_serial_port->set_failure_callback (std::bind (&CHRUM6::serial_failure, this));
+
 	_packet_reader = std::make_unique<PacketReader> (Blob { 's', 'n', 'p' }, std::bind (&CHRUM6::parse_packet, this));
 	_packet_reader->set_minimum_packet_size (7);
 	_packet_reader->set_buffer_capacity (4096);
+
+	set_logger (logger);
 }
 
 
 void
 CHRUM6::set_logger (Logger const& logger)
 {
-	_logger = logger;
-	_serial_port->set_logger (logger);
+	_logger = logger.with_scope (kLoggerScope);
+	_serial_port->set_logger (_logger);
 }
 
 
 CHRUM6::Read
 CHRUM6::read (ConfigurationAddress address, ReadCallback callback)
 {
-	_requests.push (Unique<Read> (new Read (address, callback)));
+	_requests.push (std::make_unique<Read> (address, callback));
 	Read ret = *dynamic_cast<Read*> (_requests.back().get());
 	process_queue();
 	return ret;
@@ -124,7 +123,7 @@ CHRUM6::read (ConfigurationAddress address, ReadCallback callback)
 CHRUM6::Read
 CHRUM6::read (DataAddress address, ReadCallback callback)
 {
-	_requests.push (Unique<Read> (new Read (address, callback)));
+	_requests.push (std::make_unique<Read> (address, callback));
 	Read ret = *dynamic_cast<Read*> (_requests.back().get());
 	process_queue();
 	return ret;
@@ -134,7 +133,7 @@ CHRUM6::read (DataAddress address, ReadCallback callback)
 CHRUM6::Write
 CHRUM6::write (ConfigurationAddress address, uint32_t value, WriteCallback callback)
 {
-	_requests.push (Unique<Write> (new Write (address, value, callback)));
+	_requests.push (std::make_unique<Write> (address, value, callback));
 	Write ret = *dynamic_cast<Write*> (_requests.back().get());
 	process_queue();
 	return ret;
@@ -152,7 +151,7 @@ CHRUM6::write (ConfigurationAddress address, float value, WriteCallback callback
 CHRUM6::Command
 CHRUM6::command (CommandAddress address, CommandCallback callback)
 {
-	_requests.push (Unique<Command> (new Command (address, callback)));
+	_requests.push (std::make_unique<Command> (address, callback));
 	Command ret = *dynamic_cast<Command*> (_requests.back().get());
 	process_queue();
 	return ret;
@@ -163,32 +162,28 @@ uint32_t
 CHRUM6::sample_rate_setting (Frequency frequency) noexcept
 {
 	// Use formula from the spec: freq = (280/255) * sample_rate + 20.
-	uint32_t x = (std::max ((frequency - 20_Hz), 0.1_Hz) / (280.0 / 255.0)).quantity<Hertz>();
-	return xf::limit (x, 0u, 255u);
+	uint32_t x = (std::max ((frequency - 20_Hz), 0.1_Hz) / (280.0 / 255.0)).in<Hertz>();
+	return xf::clamped (x, 0u, 255u);
 }
 
 
 uint32_t
 CHRUM6::bits_for_baud_rate (unsigned int baud_rate)
 {
-	// Must acquire lock before statically- and non-statically initializing static variables:
-	auto lock = $bits_for_baud_rate_entry_mutex.acquire_lock();
-
-	static std::map<int, uint32_t> baud_rates_map;
-
-	if (baud_rates_map.empty())
-	{
-		baud_rates_map[9600] = 0;
-		baud_rates_map[14400] = 1;
-		baud_rates_map[19200] = 2;
-		baud_rates_map[38400] = 3;
-		baud_rates_map[57600] = 4;
-		baud_rates_map[115200] = 5;
-	}
+	static std::map<int, uint32_t> const baud_rates_map {
+		{ 9600, 0 },
+		{ 14400, 1 },
+		{ 19200, 2 },
+		{ 38400, 3 },
+		{ 57600, 4 },
+		{ 115200, 5 },
+	};
 
 	auto c = baud_rates_map.find (baud_rate);
+
 	if (c == baud_rates_map.end())
 		c = baud_rates_map.upper_bound (baud_rate);
+
 	if (c == baud_rates_map.end())
 		return 0;
 
@@ -390,7 +385,6 @@ CHRUM6::process_packet (uint32_t address, bool failed, bool, uint32_t data)
 	}
 	else if (_incoming_messages_callback)
 	{
-		Time now = TimeHelper::now();
 		Read req (static_cast<DataAddress> (address));
 		req.data()->address = address;
 		req.data()->start_timestamp = now;
@@ -541,5 +535,5 @@ CHRUM6::packet_name (uint32_t address) noexcept
 	return "(unknown)";
 }
 
-} // namespace Xefis
+} // namespace xf
 

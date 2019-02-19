@@ -16,27 +16,35 @@
 
 // Standard:
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 #include <functional>
+
+// Linux:
+#include <termios.h>
 
 // Qt:
 #include <QtCore/QSocketNotifier>
 
 // Xefis:
 #include <xefis/config/all.h>
+#include <xefis/core/logger.h>
 #include <xefis/utility/noncopyable.h>
-#include <xefis/utility/logger.h>
 #include <xefis/utility/numeric.h>
+#include <xefis/utility/owner_token.h>
 
 
-namespace Xefis {
+namespace xf {
 
 class SerialPort:
 	public QObject,
 	private Noncopyable
 {
 	Q_OBJECT
+
+  private:
+	static constexpr char kLoggerScope[] = "xf::SerialPort";
 
   public:
 	// Parity bit:
@@ -116,6 +124,19 @@ class SerialPort:
 		void
 		set_hardware_flow_control (bool enabled);
 
+		/**
+		 * Set minimum number of characters for noncanonical read.
+		 */
+		void
+		set_min_characters_to_read (cc_t num_characters);
+
+		/**
+		 * Set VTIME, timeout for noncanonical read.
+		 * Resolution will be limited to deciseconds.
+		 */
+		void
+		set_read_timeout (si::Time timeout);
+
 	  private:
 		std::string		_device_path;
 		unsigned int	_baud_rate;
@@ -123,6 +144,8 @@ class SerialPort:
 		Parity			_parity		= Parity::None;
 		unsigned int	_stop_bits	= 1;
 		bool			_rtscts		= false;
+		cc_t			_vmin		= 0;
+		cc_t			_vtime		= 0;
 	};
 
 	typedef std::function<void()>	DataReadyCallback;
@@ -134,10 +157,18 @@ class SerialPort:
 	 * @data_ready is called when there's something to read.
 	 * @failure is called when failure is detected.
 	 */
+	explicit
 	SerialPort (DataReadyCallback data_ready = nullptr, FailureCallback failure = nullptr);
+
+	// Move ctor
+	SerialPort (SerialPort&&);
 
 	// Dtor
 	~SerialPort();
+
+	// Move operator
+	SerialPort&
+	operator= (SerialPort&&);
 
 	/**
 	 * Set data ready callback.
@@ -167,7 +198,7 @@ class SerialPort:
 	 * Set logger.
 	 */
 	void
-	set_logger (Logger const& logger);
+	set_logger (Logger const&);
 
 	/**
 	 * Set number of read failures at which
@@ -214,7 +245,7 @@ class SerialPort:
 	 * and it's possible that not all requested data is written
 	 * when function returns.
 	 * \throws	WriteException
-	 * 			When device is closed.
+	 *			When device is closed.
 	 */
 	void
 	write (Blob const& data);
@@ -223,7 +254,7 @@ class SerialPort:
 	 * Write string to the device. Same conditions apply as for
 	 * write (Blob).
 	 * \throws	WriteException
-	 * 			When device is closed.
+	 *			When device is closed.
 	 */
 	void
 	write (std::string const& data);
@@ -290,33 +321,27 @@ class SerialPort:
 	set_device_options();
 
 	/**
-	 * Return logger object.
-	 */
-	Logger const&
-	log() const;
-
-	/**
 	 * Return prefix for logger messages.
 	 */
 	std::string
 	log_prefix() const;
 
   private:
-	Logger const*			_logger						= nullptr;
-	Logger					_internal_logger;
-	Configuration			_configuration;
-	DataReadyCallback		_data_ready;
-	FailureCallback			_failure;
-	Unique<QSocketNotifier>	_notifier;
-	int						_device;
-	bool					_good;
-	std::string				_error;
-	unsigned int			_read_failure_count			= 0;
-	unsigned int			_max_read_failure_count		= 0;
-	unsigned int			_write_failure_count		= 0;
-	unsigned int			_max_write_failure_count	= 0;
-	Blob					_input_buffer;				// Data from the device.
-	Blob					_output_buffer;				// Data to to sent to the device.
+	xf::OwnerToken						_owned;
+	Logger								_logger;
+	Configuration						_configuration;
+	DataReadyCallback					_data_ready;
+	FailureCallback						_failure;
+	std::unique_ptr<QSocketNotifier>	_notifier;
+	int									_device;
+	bool								_good;
+	std::string							_error;
+	unsigned int						_read_failure_count			{ 0 };
+	unsigned int						_max_read_failure_count		{ 0 };
+	unsigned int						_write_failure_count		{ 0 };
+	unsigned int						_max_write_failure_count	{ 0 };
+	Blob								_input_buffer;				// Data from the device.
+	Blob								_output_buffer;				// Data to to sent to the device.
 };
 
 
@@ -351,7 +376,7 @@ SerialPort::Configuration::set_baud_rate (unsigned int baud_rate)
 inline void
 SerialPort::Configuration::set_data_bits (unsigned int data_bits)
 {
-	_data_bits = xf::limit (data_bits, 5u, 8u);
+	_data_bits = clamped (data_bits, 5u, 8u);
 }
 
 
@@ -365,7 +390,7 @@ SerialPort::Configuration::set_parity_bit (Parity parity)
 inline void
 SerialPort::Configuration::set_stop_bits (unsigned int stop_bits)
 {
-	_stop_bits = xf::limit (stop_bits, 1u, 2u);
+	_stop_bits = clamped (stop_bits, 1u, 2u);
 }
 
 
@@ -373,6 +398,20 @@ inline void
 SerialPort::Configuration::set_hardware_flow_control (bool enabled)
 {
 	_rtscts = enabled;
+}
+
+
+inline void
+SerialPort::Configuration::set_min_characters_to_read (cc_t num_characters)
+{
+	_vmin = num_characters;
+}
+
+
+inline void
+SerialPort::Configuration::set_read_timeout (si::Time timeout)
+{
+	_vtime = std::lround (timeout * 10 / 1_s);
 }
 
 
@@ -407,7 +446,7 @@ SerialPort::configuration() const noexcept
 inline void
 SerialPort::set_logger (Logger const& logger)
 {
-	_logger = &logger;
+	_logger = logger.with_scope (kLoggerScope);
 }
 
 
@@ -438,14 +477,7 @@ SerialPort::flushed() const noexcept
 	return _output_buffer.empty();
 }
 
-
-inline Logger const&
-SerialPort::log() const
-{
-	return *_logger;
-}
-
-} // namespace Xefis
+} // namespace xf
 
 #endif
 

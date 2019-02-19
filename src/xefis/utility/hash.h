@@ -1,6 +1,6 @@
 /* vim:ts=4
  *
- * Copyleft 2012…2016  Michał Gawron
+ * Copyleft 2012…2017  Michał Gawron
  * Marduk Unix Labs, http://mulabs.org/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,52 +16,98 @@
 
 // Standard:
 #include <cstddef>
+#include <optional>
 
 // Lib:
 #include <mhash.h>
 
 // Xefis:
 #include <xefis/config/all.h>
+#include <xefis/utility/span.h>
 
 
-namespace Xefis {
+namespace xf {
 
 /**
  * Interface to mhash library.
  */
 class Hash
 {
+	class FailedToSetup: public Exception
+	{
+	  public:
+		FailedToSetup():
+			Exception ("failed to setup the Hash object")
+		{ }
+	};
+
+	class AlreadyFinalized: public Exception
+	{
+	  public:
+		AlreadyFinalized():
+			Exception ("Hash object already finalized")
+		{ }
+	};
+
+	class UnknownAlgorithm: public Exception
+	{
+	  public:
+		UnknownAlgorithm():
+			Exception ("unknown alogrithm")
+		{ }
+	};
+
+  public:
+	enum Algorithm
+	{
+		SHA1,
+	};
+
   public:
 	// Ctor
-	Hash();
+	explicit
+	Hash (Algorithm);
 
 	/**
-	 * Compute and finalize hash of given vector.
+	 * Start the hash function and seed with initial data.
 	 */
-	explicit Hash (std::vector<uint8_t> const& vector);
+	explicit
+	Hash (Algorithm, std::vector<uint8_t> const& vector);
+
+	// Deleted ctor
+	Hash (Hash const&) = delete;
+
+	// Deleted operator=
+	Hash&
+	operator= (Hash const&) = delete;
 
 	/**
-	 * Compute and finalize hash of given vector.
+	 * Start the hash function and seed with initial data.
 	 */
-	Hash (const void* data, std::size_t size);
+	explicit
+	Hash (Algorithm, Span<uint8_t const>);
 
 	// Dtor
 	~Hash();
 
 	/**
+	 * Update hash with new data.
 	 * Slow due to allocation. Use only on big chunks.
 	 */
 	void
 	update (std::vector<uint8_t> const& vector);
 
-	void
-	update (const void* data, std::size_t size);
-
 	/**
-	 * Finalize hash computation.
+	 * Update hash with new data.
 	 */
 	void
-	finalize();
+	update (Span<uint8_t const>);
+
+	/**
+	 * Return hash result.
+	 */
+	Blob
+	result();
 
 	/**
 	 * Return true if hash has been already finalized and read.
@@ -70,55 +116,46 @@ class Hash
 	finalized() const;
 
 	/**
-	 * Return hash value.
+	 * Return block-size for the hash function used.
 	 */
-	std::vector<uint8_t>&&
-	result() const;
-
-	/**
-	 * Return iterator to the beginning of the result.
-	 */
-	uint8_t*
-	begin() const;
-
-	/**
-	 * Return past-the-end iterator of the result.
-	 */
-	uint8_t*
-	end() const;
+	size_t
+	block_size() const;
 
   private:
-	hashid	_algorithm;
-	MHASH	_mhash_thread;
-	void*	_result = nullptr;
+	static constexpr hashid
+	get_hashid (Algorithm);
+
+  private:
+	Algorithm			_algorithm;
+	MHASH				_mhash_thread;
+	std::optional<Blob>	_result;
 };
 
 
 inline
-Hash::Hash()
+Hash::Hash (Algorithm algorithm)
 {
-	_algorithm = MHASH_SHA1;
-	_mhash_thread = mhash_init (_algorithm);
+	_algorithm = algorithm;
+	_mhash_thread = mhash_init (get_hashid (_algorithm));
+
 	if (_mhash_thread == MHASH_FAILED)
-		throw xf::Exception ("failed to setup Hash object");
+		throw FailedToSetup();
 }
 
 
 inline
-Hash::Hash (std::vector<uint8_t> const& vector):
-	Hash()
+Hash::Hash (Algorithm algorithm, std::vector<uint8_t> const& vector):
+	Hash (algorithm)
 {
 	update (vector);
-	finalize();
 }
 
 
 inline
-Hash::Hash (const void* data, std::size_t size):
-	Hash()
+Hash::Hash (Algorithm algorithm, Span<uint8_t const> vector):
+	Hash (algorithm)
 {
-	update (data, size);
-	finalize();
+	update (vector);
 }
 
 
@@ -126,33 +163,37 @@ inline
 Hash::~Hash()
 {
 	if (!finalized())
-		finalize();
-	free (_result);
+		mhash_deinit (_mhash_thread, nullptr);
 }
 
 
 inline void
 Hash::update (std::vector<uint8_t> const& vector)
 {
-	update (vector.data(), vector.size());
+	update (Span<uint8_t const> (vector));
 }
 
 
 inline void
-Hash::update (const void* data, std::size_t size)
+Hash::update (Span<uint8_t const> vector)
 {
 	if (finalized())
-		throw xf::Exception ("Hash object already finalized");
-	::mhash (_mhash_thread, data, size);
+		throw AlreadyFinalized();
+
+	::mhash (_mhash_thread, vector.data(), vector.size());
 }
 
 
-inline void
-Hash::finalize()
+inline Blob
+Hash::result()
 {
-	if (finalized())
-		throw xf::Exception ("Hash object already finalized");
-	_result = mhash_end (_mhash_thread);
+	if (!_result)
+	{
+		std::unique_ptr<uint8_t, decltype (std::free)*> ptr (static_cast<uint8_t*> (mhash_end (_mhash_thread)), std::free);
+		_result = Blob (ptr.get(), ptr.get() + block_size());
+	}
+
+	return *_result;
 }
 
 
@@ -163,29 +204,39 @@ Hash::finalized() const
 }
 
 
-inline std::vector<uint8_t>&&
-Hash::result() const
+inline size_t
+Hash::block_size() const
 {
-	std::vector<uint8_t> ret;
-	ret.insert (ret.end(), begin(), end());
-	return std::move (ret);
+	return mhash_get_block_size (get_hashid (_algorithm));
 }
 
 
-inline uint8_t*
-Hash::begin() const
+constexpr hashid
+Hash::get_hashid (Algorithm algorithm)
 {
-	return static_cast<uint8_t*> (_result);
+	switch (algorithm)
+	{
+		case SHA1:
+			return MHASH_SHA1;
+
+		default:
+			throw UnknownAlgorithm();
+	}
 }
 
 
-inline uint8_t*
-Hash::end() const
+/*
+ * Global functions
+ */
+
+
+Blob
+hash (Hash::Algorithm algorithm, Span<uint8_t const> vector)
 {
-	return static_cast<uint8_t*> (_result) + mhash_get_block_size (_algorithm);
+	return Hash (algorithm, vector).result();
 }
 
-} // namespace Xefis
+} // namespace xf
 
 #endif
 

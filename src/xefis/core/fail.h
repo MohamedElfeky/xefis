@@ -11,10 +11,21 @@
  * Visit http://www.gnu.org/licenses/gpl-3.0.html for more information on licensing.
  */
 
-#ifndef XEFIS__APPLICATION__FAIL_H__INCLUDED
-#define XEFIS__APPLICATION__FAIL_H__INCLUDED
+#ifndef XEFIS__CORE__FAIL_H__INCLUDED
+#define XEFIS__CORE__FAIL_H__INCLUDED
 
-namespace Xefis {
+// Standard:
+#include <atomic>
+#include <cstddef>
+
+
+namespace xf {
+
+/**
+ * Set to true when HUP signal is received.
+ */
+extern std::atomic<bool> g_hup_received;
+
 
 /**
  * Called as a UNIX signal handler.
@@ -23,7 +34,7 @@ namespace Xefis {
 extern void
 fail (int signum);
 
-} // namespace Xefis
+} // namespace xf
 
 #endif
 

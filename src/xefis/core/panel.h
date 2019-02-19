@@ -24,11 +24,12 @@
 
 // Xefis:
 #include <xefis/config/all.h>
+#include <xefis/core/graphics.h>
 
 
-namespace Xefis {
+namespace xf {
 
-class Application;
+class Xefis;
 class PanelWidget;
 
 
@@ -38,7 +39,8 @@ class Panel: public QWidget
 
   public:
 	// Ctor
-	Panel (QWidget* parent, Application*);
+	explicit
+	Panel (QWidget* parent, Graphics const&);
 
 	// Dtor
 	~Panel();
@@ -60,12 +62,11 @@ class Panel: public QWidget
 	read();
 
   private:
-	Application*			_application;
 	QTimer*					_timer;
 	std::set<PanelWidget*>	_panel_widgets;
 };
 
-} // namespace Xefis
+} // namespace xf
 
 #endif
 

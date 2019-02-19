@@ -14,19 +14,40 @@
 #ifndef SI__SI_H__INCLUDED
 #define SI__SI_H__INCLUDED
 
+// Standard:
+#include <type_traits>
+
+// Local:
+#include "si_config.h"
+
+
+// Configuration checks:
+static_assert (std::is_class<si_config::Exception>(), "si_config::Exception class definition is required");
+
+
 // Local:
 #include "lonlat.h"
 #include "exception.h"
-#include "functions.h"
 #include "quantity.h"
-#include "standard_constants.h"
+#include "conversion.h"
 #include "standard_literals.h"
 #include "standard_quantities.h"
 #include "standard_unit_traits.h"
 #include "standard_units.h"
+#include "additional_units.h"
+#include "additional_quantities.h"
 #include "unit.h"
 #include "unit_traits.h"
 #include "utils.h"
+
+
+namespace si {
+
+using namespace quantities;
+using namespace units;
+using namespace literals;
+
+} // namespace si
 
 #endif
 
